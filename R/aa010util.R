@@ -1,0 +1,2881 @@
+
+#' @export
+dern <- function(root = root.global, n = "001", type = c("BDH", "BDP", "macro")) {
+    type <- match.arg(type)
+    paste0(root, type, "/derive-", n, "/")
+}
+
+
+# rddelim - delimiter between fields in filename
+#' @export
+rddelim <- function() {
+    "_"
+}
+# rdroot - root directory containing rd
+#' @export
+rdroot <- function() {
+    root.global
+}
+
+# abbrev - abbreviate and remove forbidden characters
+#' @export
+abbrev <- function(x, len = 30, rep = "", patt = list("\\.", "/", "&", "\\*", ":",","), nospace = TRUE) {
+    if (nospace)
+        patt <- union(patt, " ")
+    x <- abbreviate(x, minl = len)
+    x <- gsub(x = x, patt = grepstring(patt,caret=F), rep = rep)
+    #for (i in 1:length(patt)) x <- gsub(x = x, patt = patt[i], rep = rep)
+    x
+}
+
+#' @export
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+
+  if (numPlots==1) {
+    print(plots[[1]])
+
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+
+
+#' put
+#'
+#' save an object
+#' @param x object to save
+#' @param desc description
+#' @param i index number, defaults to next available
+#' @keywords data
+#' @export
+#' @examples
+#' putrd(letters,'my alphabet')
+# putrd
+putrd <- function(x, desc = deparse(substitute(x)), i = idxrd() + 1,usedesc=FALSE) {
+    if(usedesc && 'desc'%in%names(attributes(x))) { desc <- attr(x,'desc') }
+    n <- numtotxt(i) #formatC(i, width = 5, format = "d", flag = "0")
+    fnam <- paste(c(n, as.character(as.Date(Sys.time())), abbrev(desc,len=35)), collapse = rddelim())
+    if (i == 0) {
+        save(x, file = paste0(rdroot(), "/rd/", fnam, ".RData"))
+    } else {
+        i0 <- idxrd()
+        save(x, file = paste0(rdroot(), "/rd/", fnam, ".RData"))
+        i1 <- idxrd()
+        ifelse(i1 == i0 + 1, i1, NA)
+    }
+}
+
+
+#' descrd
+#'
+#' directory entry for index i
+#' @export
+#' @examples
+#' descrd()
+#' @param i index number, defaults to last
+#' @export
+#' @examples
+#' \dontrun{
+#' descrd()
+#' }
+descrd <- function(i=idxrd()) {
+  dirrd()[formatC(i, width = 5, format = "d", flag = "0")]
+}
+
+#' @export
+doziprd <- function(
+  root=ifelse(aabb,getOption('aa.path'),rdroot())
+  ,
+  verbose=getverbose()
+  ,
+  zname=paste0(format(Sys.time(),'%Y%m%d%H%M%S'),'-',abbreviate(desc,len),'.zip')
+  ,
+  desc=''
+  ,
+  len=10
+  ,
+  aabb=F
+) {
+  if(aabb) { #source data
+    root <- getOption('aa.path')
+    mycmd <- paste0('zip -r -q -1 ',root,'/',zname,' ',root,' -x *.zip')
+  } else {
+    mycmd <- paste0('zip -j -m ',root,'/',zname,' ',root,'/rd/*.RData')
+  }
+  if(verbose) message(mycmd)
+  shell(mycmd)
+}
+
+#' @export
+dirziprd <- function(
+  root=rdroot()
+  ,
+  zpatt='^20[0-9]{12}-.+' #20 + 12 digits and -
+) {
+  dd <- dir(paste0(root,'/'))
+  dd[grep(zpatt,dd)]
+}
+
+#' @export
+unziprd <- function(
+  root=rdroot()
+  ,
+  zf=rev(sort(dirziprd(root)))[1]
+) {
+  zfile <- paste0(root,'/',zf)
+  rddir <- paste0(gsub("/$", "", gsub("\\", "/", root, fixed=TRUE) ) ,'/rd/')
+  cmd <- paste0('unzip ',zfile,' -d ',rddir)
+  shell(cmd)
+}
+
+
+
+#' @export
+badrd <- function() {
+  dirrd()[,.N,num][N>1]
+}
+
+#' put with structured description
+#'
+#' save an object with app, type, version in description
+#' @param x object to save
+#' @param app character mnemonic for application
+#' @param type character mnemonic for user-defined 'type' ie description
+#' @param ver numeric version
+#' @param i index number, defaults to next available if over=FALSE
+#' @param over logical flag to override i and overwrite last existing entry, default is TRUE
+#' @keywords data
+#' @export
+#' @examples
+#' \dontrun{
+#' putrdatv(letters,app='myapp',type='testdata',ver=1)
+#' getrdatv(app='myapp',type='testdata',ver=1)
+#' }
+putrdatv <- function(x,app=getv()$app,type=getv()$type,ver=getv()$ver,i = idxrd() + 1,over=TRUE) {
+  if(exists('.memonly')&&.memonly) { #memonly option puts them in .rdenv
+    desc <- descrdatv(app=app,typ=type,ver=ver)#app,type,ver
+    assign(x=desc,value=x,envir=.rdenv) #instead of write
+  } else {
+    ii <- greprdatv(app=app,typ=type,ver=ver) #not needed
+    if((0<length(ii)) & over) {
+      i <- max(ii)
+       delrd(i=ii)
+    }
+    putrd(x,desc=descrdatv(app,type,ver),i=i)
+  }
+}
+#' get using structured description
+#'
+#' save an object with app, type, version in description
+#' @param x object to save
+#' @param app character mnemonic for application
+#' @param type character mnemonic for user-defined 'type' ie description
+#' @param ver numeric version
+#' @param i index number, defaults to next available
+#' @keywords data
+#' @export
+#' @examples
+#' \dontrun{
+#' putrdatv(letters,app='myapp',type='testdata',ver=1)
+#' getrdatv(app='myapp',type='testdata',ver=1)
+#' }
+getrdatv <- function(app=getv()$app,type=getv()$type,ver=getv()$ver) {
+  if(exists('.memonly')&&.memonly) { #these have been loaded into .rdenv in setv()
+    desc <- descrdatv(app=app,typ=type,ver=ver)#app,type,ver
+    if(!(desc %in% ls(envir=.rdenv)))  return()
+    get(desc,envir=.rdenv) #instead of read
+  } else {
+    ird <- greprdatv(app,type,ver)
+    if(0==length(ird)) return()
+    getrd(max(ird))
+  }
+}
+
+#' @export
+memrdatv <- function(memuse=FALSE,winenable=FALSE) { #only applies to rdatv,gett,putt
+  if( (Sys.info()['sysname']!='Windows') | winenable |  !memuse) {
+   .memonly <<- memuse
+  } else{
+   print('disabled by default on Windows')
+  }
+}
+
+#' @export
+gett <- function(ty) {getrdatv(ty=ty)} #this should be same as other copies and put in util
+#' @export
+getx <- gett
+
+#' @export
+putt <- function(x,ty=deparse(substitute(x)),save=getkeep(),ret=getreturn(),chk=getchk(),verbose=getverbose(),timer=F) {
+  if(save) { putrdatv(x,ty=ty) }
+  fun <- paste0(ty,'chk')
+  if(chk && exists(fun) && is.function(get(fun)) ) {
+    if(verbose) {message(paste0('check: ',fun))}
+    do.call(fun,list(x=x))
+  }
+  if(timer) {
+    endtime(paste0(substr(ty,1,nchar(ty)-1),'Fun'))
+  }
+  if(ret) return(x)
+}
+#' @export
+putx <- putt
+
+#' @export
+getvar <- function(
+    app=getv()$app,
+    type=getv()$type,
+    ver=getv()$ver,
+    instance=getv()$inst,
+    variant=getv()$var
+  ) {
+  # - [ ] extends 'type' with 1-digit 'instance' and 2-digit 'variant'
+  stopifnot(instance%in%(0:10)&variant%in%(0:100))
+  typextend <- paste0(type,instance,zeroprepend(variant,2))
+  print(paste0('searching for ',typextend,' in app ',app,' ver ',ver,' location ',root.global))
+  ird <- greprdatv(app,typextend,ver)
+  if(0==length(ird)) return()
+  print(paste0('getting ',typextend,' from ',root.global,' index ',ird))
+  getrd(max(ird))
+}
+
+#' @export
+putvar <- function(
+    x,
+    app=getv()$app,
+    type=getv()$type,
+    ver=getv()$ver,
+    instance=getv()$inst,
+    variant=getv()$var
+  ) {
+  # - [ ] extends 'type' with 1-digit 'instance' and 2-digit 'variant'
+  typextend <- paste0(type,instance,zeroprepend(variant,2))
+  ii <- greprdatv(app=app,typ=typextend,ver=ver)
+  if((0<length(ii))) {
+    i <- max(ii)
+    delrd(i=i)
+  } else {
+    i <- idxrd() + 1
+  }
+  putrd(x,desc=descrdatv(app,typextend,ver),i=i)
+}
+
+
+#put a named list
+#' @export
+putl <- function(x=list(a=1,b=2)) {
+  stopifnot(is.list(x) && !any(is.null(names(x))))
+  for(i in seq_along(x)) putrdatv(x[[i]],type=names(x)[i])
+}
+
+#get names to list
+#' @export
+getl <- function(x=names(list(a=1,b=2))) {
+  stopifnot(is.character(x))
+  xx <- structure(as.list(x),names=x)
+  for(i in seq_along(x)) xx[[i]] <- getrdatv(type=x[i])
+  xx
+}
+
+
+
+
+#this works but don't really like it
+# puta <- function(name,expression) {
+#   assign(name,eval(parse(text=expression)),env=globalenv())
+#   putrdatv(get(name,env=globalenv()),type=name)
+#   get(name,env=globalenv())
+# }
+
+#' grep existing entry with structured description
+#'
+#' grep for an object with app, type, version in description
+#' @param app character mnemonic for application
+#' @param type character mnemonic for user-defined 'type' ie description
+#' @param ver numeric version
+#' @keywords data
+#' @export
+#' @examples
+#' \dontrun{
+#' putrdatv(letters,app='myapp',type='testdata',ver=1)
+#' greprdatv(app='myapp',type='testdata',ver=1)
+#' }
+greprdatv <- function(app=getv()$app,type=getv()$type,ver=getv()$ver) {
+  dd <- dirrd()
+  dd[grepl(descrdatv(app,type,ver), dirrd()[, des]), prependrdatv(as.numeric(num))]
+}
+
+
+#' @export
+convrdatv <- function(myrd=rdroot()) {
+  x<-dirrd()[grepl(patt='^app.+type.+ver',x=des)]
+  fnam <- dir(paste0(rdroot(),'/rd/'))
+  for(i in 1:nrow(x)) {
+    x[i,fn:=fnam[grepl(patt=des,x=fnam)]]
+  }
+  ff <- function(x) {unlist(lapply(strsplit(x,split='ver'),function(xx){paste0(xx[1],'ver',prependrdatv(substr(xx[2],1,nchar(xx[2])-6)),'.Rdata')}))}
+  x[,newname:=ff(fn)]
+  for(i in 1:nrow(x)) {
+    cmd <- paste0('ren ',rdroot(),'/rd/',x[i,fn],' ',x[i,newname])
+    cmd <- gsub(cmd,pat='/',rep='\\\\')
+    shell(cmd)
+  }
+
+}
+
+#' @export
+numtotxt <- function(i) {
+  formatC(i, width = 5, format = "d", flag = "0")
+}
+
+#' structured description
+#'
+#' paste up description from mnemonics
+#' @param app character mnemonic for application
+#' @param type character mnemonic for user-defined 'type' ie description
+#' @param ver numeric version
+#' @keywords data
+#' @export
+descrdatv <- function(app=getv()$app,type=getv()$type,ver=getv()$ver) {
+  paste0('app',app,'type',abbrev(type),'ver',prependrdatv(ver))
+}
+
+#utility: defines the prepend length
+#' @export
+prependrdatv <- function(ver=1,len=5) {zeroprepend(ver,len)}
+
+#' @export
+ddv <- function(ver=getv()$ver,app=getv()$app,ondisk=FALSE) { #return all dd matching app,ver
+  if( exists('.rdenv')&&is.environment(.rdenv)&&exists('.memonly')&&.memonly&&!ondisk ) {
+    ls(envir=.rdenv)
+  } else {
+    dd <- dirrd()
+    dd[grep(paste0('^app',app,'type.+ver',prependrdatv(ver),'$'),des)]
+  }
+}
+
+#' @export
+ddv1 <- function(app=getv()$app,type=getv()$type,ver=getv()$ver) { #return all dd matching app,ver
+  dd <- dirrd()[!is.na(des)]
+  subg <- function(x){ifelse(x=='*','.+',x)}
+  #ver <- paste0(prependrdatv(subg(ver),len=3),'$') #this will fail for high ird
+  verx <- paste0('[0]+',ifelse(ver=='*','',ver),'$') #any number of leading 0
+  appx <- subg(app)
+  typex <- subg(type)
+  #browser()
+  i <- greprd(perl=T,patt=paste(paste(c('app','type','ver'),c(appx,typex,verx),sep=''),collapse=''),dirrd()[,des])
+  dd[zeroprepend(i,5)]
+}
+
+#' @export
+dirv <- function(app=getv()$app) { #return all dd matching app,ver
+  x <- dirrd()[grep(paste0('^app',app),des),]
+  if(nrow(x)==0) return(NULL)
+  sort(unique(suppressWarnings(as.numeric(as.matrix(x[,strsplit(des,'ver')][2,])))))
+}
+
+#' @export
+nextv <- function(app=getv()$app) { #return all dd matching app,ver
+  suppressWarnings(max(c(0,dirv(app=app)),na.rm=T)+1)
+}
+
+
+
+#' @export
+newv <- function(isu,ver=nextv(),des=paste0(dirrd()[numtotxt(isu),des],'ird=',isu)) { #next version
+  putv(v=ver)
+  putrdatv(x=des,type='desc')
+  putrdatv(x=cleansu(getrd(isu)),type='su')
+}
+
+#' put version number
+#'
+#' @param n number
+#' @keywords data
+#' @export
+putv <- function(app="jo",type="x",ver=1) {
+  ver.g <<- list(app=app,type=type,ver=ver)
+}
+
+#' put version number
+#'
+#' @param n number
+#' @keywords data
+#' @export
+setv <- function(app=getv()$app, type=getv()$type, ver=getv()$ver, var=getv()$var, inst=getv()$inst) {
+  ver.g <<- list(app=app,type=type,ver=ver,var=var,inst=inst)
+  if(exists('.memonly')&&.memonly) { #if .memonly, use .rdenv not filesystem
+    #exists('.rdenv')&&is.environment(.rdenv)
+    dd <- ddv(ondisk=T)
+    .rdenv <<- new.env() #nb any saved work lost on second setv
+    for(i in  seq_along(dd[,num])) {
+      print(dd[i,des])
+      print(length(getrd(as.numeric(dd[i,as.numeric(num)]))))
+      assign(x=dd[i,des],value=getrd(as.numeric(dd[i,as.numeric(num)])),envir=.rdenv)
+    }
+  }
+}
+
+
+#' get version number
+#'
+#' @keywords data
+#' @export
+getv <- function() {
+  if(!exists("ver.g",envir=globalenv())) return(list(app="jo",type='x',ver=0,var=0,inst=0))
+  eval(expression(ver.g),envir=globalenv())
+}
+
+
+#' new
+#'
+#' create the directory
+#' @keywords data
+#' @export
+#' @examples
+#' \dontrun{
+#' newrd()
+#' }
+newrd <- function(
+  hard=FALSE
+  ,
+  dobics=T #retained for backward compatibility
+  ) {
+    if(hard) {
+      shell(paste0("rd /s /q ",rdroot(),"\\rd"))
+      #load("./RD/bics.RData")
+    }
+  if(dobics) {
+    bics <- bicsdump()
+    #system(paste0("mkdir ", rdroot(), "/rd"))
+    shell(paste0("mkdir ", rdroot(), "/rd"))
+    putrd(bics, "bicsindustrydescription", i = 0)
+  } else { #this opens the possibility of not using bicsdump() to initialise, but still leaves it as default and leaves the function in aautil and leaves the repeated idx=0 bug and is untested
+    bics <- 0
+    putrd(bics, "dummy", i = 0, usedesc=T)
+  }
+}
+#' get
+#'
+#' get an object
+#' @param i index number to retrieve
+#' @keywords data
+#' @export
+#' @examples
+#' getrd(1)
+
+# getrd
+getrd <- function(i = idxrd()) {
+    n <- formatC(i, width = 5, format = "d", flag = "0")
+    fnam <- paste0(paste0(dirrd()[n], collapse = rddelim()), ".RData")
+    load(file = paste0(rdroot(), "/rd/", fnam))
+    x
+}
+
+#' dir
+#'
+#' directory of objects
+#' @keywords data
+#' @export
+#' @examples
+#' dirrd(1)
+# dirrd
+dirrd <- function() {
+    dd <- paste0(rdroot(), "/rd")
+    l1 <- lapply(lapply(lapply(dir(dd), strsplit, split = "\\."), "[[", 1), "[", 1)
+    num <- unlist(lapply(lapply(lapply(l1, strsplit, split = rddelim()), "[[", 1), "[", 1))
+    dat <- unlist(lapply(lapply(lapply(l1, strsplit, split = rddelim()), "[[", 1), "[", 2))
+    des <- unlist(lapply(lapply(lapply(l1, strsplit, split = rddelim()), "[[", 1), "[", 3))
+    if(is.null(num)) shell(rdroot()) #this is a means to get rdroot() echoed from server
+    setkeyv(data.table(data.frame(num = num, dat = dat, des = des)), "num")[]
+}
+
+
+
+#' @export
+dd <- function() {
+  x <- edit(dirrd())
+}
+
+
+#' index
+#'
+#' index of repo
+#' @keywords data
+#' @export
+#' @examples
+#' idxrd()
+# idxrd - get final index
+idxrd <- function() {
+  dd <- dirrd()
+  ifelse(length(dd), as.numeric(max(dd[, num])), 0)
+}
+
+#' delete
+#'
+#' delete from repo
+#' @param i index number to delete
+#' @keywords data
+#' @export
+#' @examples
+#' delrd()
+# delrd
+delrd <- function(i = idxrd()) {
+  i <- as.numeric(i)
+  if (length(i)==1 && i == 0)
+        return()
+    i <- intersect(i,dirrd()[,as.numeric(num)])
+    for(j in seq_along(i)) {
+      n <- formatC(i[j], width = 5, format = "d", flag = "0")
+      fnam <- paste0(paste0(dirrd()[n], collapse = rddelim()), ".RData")
+      file.remove(paste0(rdroot(), "/rd/", fnam))
+      #system(paste0("rm \"", paste0(rdroot(), "/rd/", fnam, "\"")))
+    }
+}
+
+#' @export
+delrdv <- function(savever=c(0,30:40)) {
+  delrd(dirrd()[!grepl( paste0(paste0('ver',paste0(sapply(savever,zeroprepend,5),'$')),collapse='|'),des),as.numeric(num)])
+}
+#' grep
+#'
+#' grep for pattern in des
+#' @param patt pattern to match using grep
+#' @keywords data
+#' @export
+#' @examples
+#' greprd('^su ')
+greprd <- function(patt = "^su ",...) {
+    dd <- dirrd()
+    dd[grepl(patt, dirrd()[, des],...), as.numeric(num)]
+}
+
+
+#' last observation carry forward
+#'
+#' locf
+#' @keywords utility
+#' @param z zoo object for NA adjustment
+#' @param wd weekdays to include in output sequence
+#' @param roll see data.table documentation
+#' @param rollends see data.table documentation
+#' @export
+#' @examples
+#' dtlocf(z<-zoo(matrix(c(NA,1:6,rep(NA,3)),10,2)))
+# ROLL=INTEGER WORKS ONLY FOR NUMERIC INDEX SO MODS 2014-06-26 (transform to Date and back) minvar2.dtlocf - modified
+# with roll to allow focb, using -ve values for roll
+dtlocf <- function(z, dates = seq(from = min(index(z)), to = max(index(z)), by = 1), wd = 1:5, roll = TRUE, rollends = FALSE) {
+    index(z) <- as.Date(index(z))
+    j <- colnames(z)
+    colnames(z) <- paste0("a", 1e+05 + (1:ncol(z)))
+    # dates <- as.character(dates[as.POSIXlt(dates)$wday%in%wd])
+    dates <- as.Date(dates[as.POSIXlt(dates)$wday %in% wd])
+    rownames(z) <- as.character(index(z))
+    # dt <- setkey(data.table(mattotab(z)),bui,date)
+    dt <- setkey(data.table(mattotab(z))[, `:=`(date, as.Date(date))], bui, date)
+    #dt <- setkey(data.table(mattotab(z))[, `:=`(date, as.Date(fastPOSIXct(date)))], bui, date) #this may be faster but does not work in 1960s
+    dt1 <- dt[!is.na(field)][CJ(unique(dt[, bui]), dates), roll = roll, rollends = rollends]
+    dt1[, `:=`(date, as.character(date))]  #this is slow, lubridate is slow, fastposixct slow
+    mat <- as.matrix(tabtomat(data.frame(setcolorder(dt1, c("date", "bui", "field"))))[, colnames(z)])
+    colnames(mat) <- j
+    zoo(mat, as.Date(rownames(mat)))
+}
+
+
+#' triangular weighted mean, high weights on right
+#'
+#' @keywords utility
+#' @param x vector
+#' @param minweight tail weight
+#' @param pow power x is raised to before mean
+#' @export
+meantri <- function(x, minweight = (1/3), pow = 1, ...) {
+    if (length(x) == 0)
+        return()
+    stopifnot(length(minweight) == 1 && 0 <= minweight && minweight <= 1)
+    wgt <- seq(from = minweight, to = 1, length = length(x))
+    weighted.mean(x = x^pow, w = wgt, ...)
+}
+
+
+#' rolling average
+#'
+#' @keywords utility
+#' @param x vector
+#' @param what character name of function
+#' @param n window over which applied
+#' @export
+rollxts <- function(x, what = "max", n = 5, ...) {
+    # rollapply(data=x,width=n,FUN=get(what),na.rm=TRUE,fill=NA,align='right',...)
+    x1 <- rollapply(data = x, width = n, FUN = get(what), na.rm = TRUE, na.pad = TRUE, align = "right", ...)  #changed to deprecated alternative as workaround for bug in deraats 2013-12-31
+    rownames(x1) <- as.character(index(x1))
+    x1
+}
+
+#' @export
+notail <- function(x,quant=.05) {
+  x[(quantile(x,prob=quant,na.rm=TRUE)<=x) & (x<=quantile(x,prob=1-quant,na.rm=TRUE))]
+}
+
+
+#' normalisation
+#'
+#' @keywords utility
+#' @param x vector
+#' @param sdv standard deviation target
+#' @param meanarg mean target
+#' @param final logical flag to return just final point
+#' @export
+mynorm <- function(x, sdv = sd(as.numeric(notail(x,quant)), na.rm = TRUE), meanarg = mean(notail(x,quant), na.rm = TRUE), final = FALSE, quant=0., ...) {
+    if (sum(!is.na(x)) < 1)
+        return(1*NA)
+    stopifnot(is(x, "numeric"))
+    stopifnot((0<=quant) & (quant<.5))
+    res <- qnorm(p = rank(x, na.last = "keep")/(1 + sum(!is.na(x))), sd = sdv, mean = meanarg)
+    if (final) {
+        res[length(res)]
+    } else {
+        res
+    }
+}
+
+
+#' transforms rows, cols, or entire zoo to normal, preserving moments 1,2
+#'
+#' @keywords utility
+#' @param x zoo
+#' @param dimension one of 'ts' 'xs' 'tsxs'
+#' @export
+zoonorm <- function(x, dimension = c("ts", "xs", "tsxs"), ...) {
+    stopifnot(class(x) %in% c("matrix", "zoo"))
+    stopifnot(all(dim(x) > 0))
+    stopifnot(any(!is.na(x)))
+    stopifnot(mode(x) == "numeric")
+    dimension <- match.arg(dimension)
+    res <- x * NA
+    if (dimension == "ts") {
+        for (j in 1:ncol(x)) {
+            res[, j] <- mynorm(as.numeric(x[, j]))
+        }
+    }
+    if (dimension == "xs") {
+        for (i in 1:nrow(x)) {
+            res[i, ] <- mynorm(as.numeric(x[i, ]))
+        }
+    }
+    if (dimension == "tsxs") {
+        res[] <- mynorm(as.numeric(x))
+    }
+    #stopifnot(identical(dim(res), dim(x)) && identical(sum(is.na(x)), sum(is.na(res))))
+    res
+}
+
+#' make directory
+#'
+#' make directory if it does not exist
+#' @param dd path
+#' @keywords utility
+#' @export
+mkdirn <- function(dd) {
+    if (all(is.na(file.info(dd))))
+        #suppressWarnings(system(paste0("mkdir ", dd)))
+        suppressWarnings(shell(paste0("mkdir ", dd)))
+}
+
+
+#' extract dates
+#'
+#' @export
+extractDates <- function(dates, weekday = FALSE, find = c("all", "last", "first"), period = c("week", "month", "year"),
+    partials = TRUE, firstlast = FALSE, select) {
+    find <- match.arg(find)
+    period <- match.arg(period)
+    myindex1 <- 1:length(dates)
+    # 1 optionally point only to weekdays
+    if (weekday) {
+        wday <- as.POSIXlt(dates)$wday
+        myindex1 <- which((0 < wday) & (wday < 6))
+    }
+    if (period == "month") {
+        theperiod <- 100 * as.POSIXlt(dates[myindex1])$year + as.POSIXlt(dates[myindex1])$mon
+        dayinperiod <- as.POSIXlt(dates[myindex1])$mday
+    } else if (period == "year") {
+        theperiod <- as.POSIXlt(dates[myindex1])$year
+        dayinperiod <- as.POSIXlt(dates[myindex1])$yday
+    } else if (period == "week") {
+        #warning('week believed broken at yearends!') #not sure of the evidence for this 2016-08 as derca('1900-01-01') does a fine series each time aautil loaded
+        theweek <- as.numeric(format(as.POSIXct(dates[myindex1]), "%U"))
+        theyear <- as.numeric(format(dates[myindex1], "%Y"))
+        incorrectPartialWeek <- theweek == 0
+        theyear[incorrectPartialWeek] <- theyear[incorrectPartialWeek] - 1  #first partial week in January assigned to last year
+        theweek[incorrectPartialWeek] <- as.numeric(format(ISOdate(theyear[incorrectPartialWeek] - 1, 12, 31), "%U"))  #only incomplete Jan weeks are indexed 0 (see Jan 1995)
+        theperiod <- 100 * theyear + theweek
+        dayinperiod <- as.POSIXlt(dates[myindex1])$wday
+    }
+    # 2 if selecting based on 'find'
+    if (find == "all") {
+        myindex2 <- 1:length(myindex1)
+    } else {
+        myindex2 <- setdiff(which(diff(c(theperiod[1], theperiod)) != 0), 1)
+        if (find == "last") {
+            myindex2 <- myindex2 - 1
+        }
+        if (partials) {
+            if (find == "last") {
+                myindex2 <- unique(c(myindex2, length(myindex1)))
+            } else {
+                myindex2 <- unique(c(1, myindex2))
+            }
+        }
+    }
+    # 3 select based on 'select'
+    if (missing(select) || is.na(select) || is.null(select)) {
+        myindex3 <- 1:length(myindex2)
+    } else {
+        myindex3 <- which(dayinperiod[myindex2] %in% select)
+    }
+    myindex <- myindex1[myindex2][myindex3]
+    if (firstlast) {
+        myindex <- unique(c(1, myindex, myindex1[length(myindex1)]))
+    }
+    if (all(is.na(myindex)))
+        myindex <- NULL
+    return(dates[myindex])
+}
+
+#' table to matrix [should use dcast instead]
+#'
+#' @export
+tabtomat <- function(x) {
+    stopifnot(is.matrix(x) | is.data.frame(x))
+    stopifnot(ncol(x) == 3)
+    stopifnot(!any(duplicated(paste(x[, 1], x[, 2]))))
+    da <- sort(unique(x[, 1]))
+    su <- sort(unique(x[, 2]))
+    res <- matrix(NA, nrow = length(da), ncol = length(su), dimnames = list(da, su))
+    i <- match(x[, 1], da)
+    j <- match(x[, 2], su)
+    res[cbind(i, j)] <- x[, 3]
+    res
+}
+
+
+# create very top dirs
+#' @export
+aatopcreate <- function() {
+    mkdirn(paste0(rappdirs::user_data_dir(), "\\aabb"))
+    mkdirn(paste0(rappdirs::user_data_dir(), "\\aabb\\test"))
+    mkdirn(paste0(rappdirs::user_data_dir(), "\\aabb\\prod"))
+}
+
+#create one 'application directory'
+#' @export
+aatopcreate1 <- function(ver="temp") {
+  mkdirn(paste0(rappdirs::user_data_dir(), paste0("\\aabb\\",ver)))
+}
+
+
+# create very top dirs
+#' @export
+aatopselect <- function(ver = 'prod') {
+    ver <- switch(ver,p='prod',t='test',ver) #nasty, but this makes backward compatible with match.arg, for 1-letter abbrev, the most common
+    #ver <- match.arg(ver) #used to be: prod/test/.
+    if(ver!='.') {
+    root.global <<- paste0(rappdirs::user_data_dir(), "\\aabb\\", ver, "\\")
+    } else {
+    root.global <<- "."
+    }
+}
+
+#' @export
+buiindir <- function(dd = "../gvs11sector/blra/", test = TRUE, ...) {
+    cc <- list.files(dd, ...)
+    teststring <- ifelse(test, ".?EQ\\d\\d\\d\\d\\d\\d\\d\\d\\d\\d\\d\\d\\d\\d\\d\\d.RData", ".?.RData")
+    cc1 <- cc[grepl(teststring, cc)]
+    if (test) {
+        unique(substr(cc1, nchar(cc1) - 23, nchar(cc1) - 6))
+    } else {
+        unique(substr(cc1, 1, nchar(cc1) - 6))
+    }
+}
+
+#' @export
+buiindirs <- function(dd = paste0(root.global, "/BDP/key1/", dir(paste0(root.global, "/BDP/key1/")), "/")) {
+    sort(unique(unlist(lapply(as.list(dd), buiindir))))
+}
+
+
+#' @export
+writezip <- function(ver = "test") {
+  path <- paste0(rappdirs::user_data_dir(), "\\aabb\\",ver)
+  fnam <- paste0(rappdirs::user_data_dir(), "\\aabb\\",ver,format(Sys.Date(),"%Y%m%d"),".zip")
+  shell(paste0("rm ",fnam))
+  shell(paste("zip -r ",fnam,path))
+}
+
+#' unit tests
+#'
+#' @export
+aatests <- function(hard=FALSE,do=list(aabd=T,aapa=T,aaco=T,aate=T,aara=T,aafa=T)) {
+  require(aautil)
+  writezip()
+  putv(ver=0)
+  aatopselect("test")
+  if(hard) { newrd(hard) }
+  require(testthat)
+  require(aabd)
+  test_dir("../aa010util/tests/")
+  putv(ver=0)
+  #deraasu(year=2013:2014) #defaults to dax
+  deraasu(year=2004:2005) #defaults to dax
+  test_dir("../aa020bd/tests/") # pretty sure this does the derive actions
+  require(aapa)
+  require(aaco)
+  require(aate)
+  require(aara)
+  require(aafa)
+  deraasi()
+  if(do$aapa) test_dir("../aa030pa/tests/")
+  deraapa() # pretty sure this does the derive actions
+  if(do$aaco) test_dir("../aa040co/tests/")
+  deraaco()
+  if(do$aate) test_dir("../aa050te/tests/")
+  deraate()
+  if(do$aara) test_dir("../aa060ra/tests/")
+  #deraara() not exists
+  if(do$aafa) test_dir("../aa070fa/tests/")
+}
+
+
+
+
+#as.Date("1996-01-03")
+
+#' @export
+derca <- function(start = "1989-01-11", end = "2020-12-24", select = 3, ...) {
+    ca <<- data.table(date = extractDates(seq(from = as.Date(start), to = as.Date(end), by = 1), select = select, ...),
+        key = "date")
+}
+
+#' @export
+offda <- function(x = ca[, max(date)], lags = -20:0) {
+    ca[match(x, date) + lags, date]
+}
+
+#' @export
+dttozoo <- function(dt = cart()[, `:=`(x, 1:.N)], value.var = "x") {
+    x <- dcast.data.table(dt[, c("bui", "date", value.var), with = FALSE], date ~ bui, value.var = value.var)
+    zm(zoo(as.matrix(x[, -1, with = FALSE]), as.Date(x[, date])))
+}
+
+#' @export
+zootodt <- function(z = dttozoo(), field = "x") {
+    rownames(z) <- as.character(index(z))
+    setkey(setcolorder(data.table(mattotab(z, field = field))[, `:=`(date, as.Date(date))], c(2, 1, 3)), bui, date)[]
+}
+
+#should use melt
+#' @export
+mattotab <- function(x, field = "field", fieldmode = "numeric", rclabel = c("date", "bui")) {
+    stopifnot(!is.null(rownames(x)) && all(!duplicated(rownames(x))))
+    stopifnot(!is.null(colnames(x)) && all(!duplicated(colnames(x))))
+    # if(fieldmode!=mode(x)) print('changing mode in mattotab()')
+    da <- rownames(x)
+    su <- colnames(x)
+    ij <- as.matrix(expand.grid(lapply(list(date = da, bui = su), seq)))
+    res <- data.frame(cbind(date = da[ij[, 1]], bui = su[ij[, 2]], field = as.matrix(x)[as.matrix(ij)]))
+    colnames(res) <- c(rclabel, field)
+    res[, 3] <- as(res[, 3], fieldmode)
+    res
+}
+
+#' @export
+retxts <- function(x, ...) {
+    #x1 <- diff(x)/lag(x)  #recall that for xts lag(x,k=1) moves older->newer ie feasible
+    #rownames(x1) <- as.character(index(x))  #this does not work, xts has null rownames
+    #x1
+    diff(x)/lag(x)    #recall that for xts lag(x,k=1) moves older->newer ie feasible
+}
+
+#' @export
+xz <- function(x) {
+  x1 <- as.zoo(x)
+  rownames(x1) <- as.character(index(x1))
+  x1
+}
+
+# focb - first observation carry back
+#' @export
+focb.mat <- function(x, maxperiods = Inf) {
+    if (nrow(x) < 1)
+        return(x)
+    if (!any(is.na(x)))
+        return(x)
+    y <- x[nrow(x):1, , drop = FALSE]
+    locf.local(y, maxperiods = maxperiods)[nrow(x):1, , drop = FALSE]
+}
+
+# locf - last observation carry forward, adapted from 'its' lib
+#' @export
+locf.local <- function(x, maxperiods = Inf, ...) {
+    if (nrow(x) < 1)
+        return(x)
+    if (!any(is.na(x)))
+        return(x)
+    y <- x
+    jna <- which(apply(is.na(x), 2, any))
+    for (j in jna) {
+        i <- 1:nrow(y) - pmin((1:nrow(y)) - most.recent.local(!is.na(y[, j])), maxperiods)
+        suppressWarnings(y[, j] <- y[i, j])  #the warning arises from one:many mapping
+        stopifnot(!any(duplicated(index(y))))  #check that y has no repeats, ie warning was not relevant
+    }
+    return(y)
+}
+
+#
+#' @export
+most.recent.local <- function(x) {
+    if (!is.logical(x))
+        stop("x must be logical")
+    x.pos <- which(x)
+    if (length(x.pos) == 0 || x.pos[1] != 1)
+        x.pos <- c(1, x.pos)
+    rep(x.pos, c(diff(x.pos), length(x) - x.pos[length(x.pos)] + 1))
+}
+
+#' @export
+psz <- paste0
+
+#' @export
+newcon <- function() {
+    DBcon <<- NULL
+}
+
+
+#' @export
+zoolist <- function(patt = "0700", fnam = dir(dern())[grep(patt, dir(dern()))]) {
+    mnem <- vector("list")
+    for (i in 1:length(fnam)) mnem[i] <- strsplit(fnam[i], split = "\\.")[[1]][1]
+    x <- lapply(mnem, getstep)
+    names(x) <- mnem
+    x
+}
+
+#' @export
+dtlist <- function(...) {
+    x <- zoolist(...)
+    dt1 <- lapply(lapply(x, zootodt), setkeyv, c("bui", "date"))
+    for (i in 1:length(dt1)) {
+        setnames(dt1[[i]], old = "x", new = names(dt1[i]))
+    }
+    dt1
+}
+
+#' @export
+combokey0 <- function(x = zoolist(), fun = c("union", "intersect"), ij = c("rownames", "colnames")) {
+    ij <- match.arg(ij)
+    setnames(data.table(sort(Reduce(match.arg(fun), lapply(x, get(ij)))), key = "V1"), ifelse(ij == "rownames", "date",
+        "bui"))[]
+}
+#' @export
+combokey <- function(..., drop = "VIX") {
+    x <- combokey0(...)
+    if (identical(colnames(x), "date"))
+        x[[1]] <- as.Date(x[[1]])
+    x[!(unlist(x[, 1, with = FALSE]) %in% drop)]
+}
+#' @export
+buidate <- function(bui = combokey(ij = "col"), da = combokey(ij = "row")[ca]) {
+    expand.grid(unique(unlist(bui)), as.Date(unique(unlist(da))))
+}
+
+#' @export
+cart <- function(bui = combokey(ij = "col"), da = xda(1)) {
+    setkey(setnames(data.table(expand.grid(bui[, bui], da[, date], stringsAsFactors = FALSE)), c("bui", "date")), bui,
+        date)[]
+}
+
+#' @export
+xda <- function(extend = 10, da = combokey()) {
+    unique(rbindlist(list(da, data.table(offda(da[, max(date)], 0:extend)))))
+}
+
+#' @export
+mergedt <- function(x = dtlist(), initial = cart()) {
+    Reduce(f = function(x, y) merge(x, y, all = TRUE), x = x)
+}
+
+# rows with no na
+#' @export
+nonadt <- function(x = mergedt()) {
+    x[x[, all(!is.na(.SD)), key(x)][V1 == TRUE]][, `:=`(V1, NULL)][]
+}
+
+#' @export
+nonasu <- function(x = nonadt(), nda = x[, length(unique(date))], nbui = x[, length(unique(bui))]) {
+    dtot <- unique(x[, list(date)])
+    cart(bui = unique(x[, list(bui)])[1:nbui], da = dtot[(nrow(dtot) - (nda - 1)):nrow(dtot)])[!is.na(bui) & !is.na(date)]
+}
+
+#' @export
+sfLapplyWrap <- function(X, FUN, ...) {
+  result <- sfLapply(x = X, fun = FUN, ...)
+  sfStop()
+  result
+}
+
+# mkdirn - make one directory DUP
+# mkdirn <- function(dd) {
+#     if (all(is.na(file.info(dd))))
+#         suppressWarnings(system(paste0("mkdir ", dd)))
+# }
+
+# aacol1 - color scale, for interpolating qualitative scale 'Set2' which can only have n<=8
+#' @export
+aacol1 <- function(m = k, k = 6, nbrew = 8, name = "Set2") {
+    c0 <- brewer.pal(n = nbrew, name = name)[1:k]
+    oversample <- (k < m)
+    if (oversample) {
+        n <- max(m, 60)
+        x1 <- (k - 1) * ((1:n)/n)
+        i <- ceiling(x1 - as.numeric(options("ts.eps")))
+        c1 <- c0[i]
+        c2 <- c0[i + 1]
+        cc <- rep(NA, n)
+        for (j in seq_along(i)) {
+            ii <- which(i == i[j])
+            cc[ii] <- colorRampPalette(colors = c(unique(c1[ii]), unique(c2[ii])), space = "Lab")(length(ii))
+        }
+        im <- round(seq(from = 1/n, to = 1, length = m) * n)
+    } else {
+        cc <- c0
+        im <- 1:m
+    }
+    cc[im]
+}
+# testaacol <- function(...){plot.new();par(mfcol=c(4,4));for(i in
+# 1:15){barplot(1:i,col=aacol1(i,...),border=NA,space=0)}}
+
+# bdp1con
+#' @export
+bdp1con <- function() {
+    # fields only
+    data.table(data.frame(field = c("EARN_YLD","PX_TO_BOOK_RATIO","CRNCY_ADJ_CURR_EV","SALES_REV_TURN","CUR_EV_COMPONENT","NET_DEBT","CRNCY_ADJ_MKT_CAP", "BICS_LEVEL_3_NAME", "BICS_LEVEL_CODE_ASSIGNED", "BICS_LEVEL_NAME_ASSIGNED",
+        "CIE_DES", "CNTRY_ISSUE_ISO", "COMPANY_WEB_ADDRESS", "COUNTRY_FULL_NAME", "CRNCY", "CUR_MKT_CAP", "EQY_PRIM_EXCH",
+        "ICB_SUBSECTOR_NAME", "INDUSTRY_SUBGROUP", "NAME", "REGION_OF_LARGEST_REVENUE", "TICKER_AND_EXCH_CODE", "ICB_SUBSECTOR_NUM"),
+        override_fields = "EQY_FUND_CRNCY", override_values = "USD"), key = "field")
+}
+
+# bdp2con
+#' @export
+bdp2con <- function() {
+    # fields only
+    data.table(data.frame(field = c("BICS_REVENUE_%_LEVEL_ASSIGNED")))
+}
+
+#' Paths to reference data directory tree
+#'
+#' Generates paths for directory creation
+#' @param flds data.table with fields 'field' and 'subdir' - can be generated with bdp1con
+#' @keywords directory
+#' @export
+#' @examples
+#' bdp1dir()
+bdp1dir <- function(flds = bdp1con()) {
+    x <- paste0("BDP/key1/", flds[, field])
+    x[order(nchar(x))]
+}
+
+#' Paths to BICS data directory tree
+#'
+#' Generates paths for directory creation
+#' @param flds data.table with fields 'field' and 'subdir' - can be generated with bdp2con
+#' @keywords directory
+#' @export
+#' @examples
+#' bdp2dir()
+
+bdp2dir <- function(flds = bdp2con()) {
+    x <- paste0("BDP/key2/", flds[, field])
+    x[order(nchar(x))]
+}
+# *con----ends
+
+
+#' resample for devol
+#'
+#' part 1 : rescale values to 'rolling quantile' ie the quantile of the last observation in a trailing window
+#' @param x normally volatility
+#' @param n number of quantiles, defaults to quintiles
+#' @param start no output until this index
+#' @param maxwin the window expands until it is this length, then rolls
+#' @examples
+#' vix <- bdh(conn,paste0('vix index'),'px_last','20060101','20150227')
+#' lastqtile(vix[,2])
+#' @export
+lastqtile <- function(x, n = 5, start = 2 * n, maxwin = 200 * n) {
+    if (is.zoo(x))
+        x <- coredata(x)
+    res <- x * NA
+    for (i in seq(from = start, to = length(x), by = 1)) {
+        i1 <- max(1, i - maxwin):i
+        xx <- x[i1][!is.na(x[i1])]
+        ii <- length(xx)
+        if (n < length(xx))
+            res[i] <- ceiling(n * rank(xx)[ii]/ii)
+    }
+    res
+}
+
+#' resample for devol
+#'
+#' part 2 : resample so equal amount 'flows' in each period
+#' @param volq volatility quantile, defaults to quantil
+#' @param n quantity of volq before a new sample taken, default 5
+#' @examples
+#' x <- bdh(conn,paste0('vix index'),'px_last','20060101','20150227')
+#' vix <- zoo(x[,2],as.Date(x[,1]))
+#' vixquantile <- zoo(lastqtile(x[,2]),as.Date(x[,1]))
+#' i <- resvol(vixquantile,5)
+#' par(mfrow=c(2,1))
+#' plot(vix[i])
+#' plot(coredata(vix[i]),type='l')
+#' par(mfrow=c(1,1))
+#' @export
+resvol <- function(volq, n = 5) {
+    i1 <- 1
+    i2 <- 1
+    sumvol <- 0
+    dd <- index(volq)
+    dseq <- dd[1]
+    dseq[i1] <- as.Date(dd[i1])
+    while (i1 < length(dd)) {
+        while (sumvol < n & i1 < length(dd)) {
+            sumvol <- sumvol + ifelse(is.na(volq[i1]), 0, volq[i1])
+            i1 <- i1 + 1
+        }
+        sumvol <- 0
+        i2 <- i2 + 1
+        dseq[i2] <- dd[i1]
+        print(paste(i1, i2))
+    }
+    dseq
+}
+
+
+#commonda - applies joinfun to derive-000 directory contents
+#' @export
+commonda <- function(joinfun=intersect,nn="000",patt=".?") {
+  dd0 <- paste0(root.global,"BDH/derive-",nn,"/")
+  dd <- dir(dd0)[grepl(patt,dir(dd0))]
+  if(0==length(dd)) { return(NA) #unsatisfactory
+  } else {
+    pp <- paste0(dd0,dd)
+    ll <- vector("list",length(dd))
+    for(i in seq_along(pp)) {
+      load(pp[i])
+      ll[[i]] <- index(x)
+    }
+    bar <- Reduce(joinfun,ll[0<lapply(ll,length)]) #no idea why needed
+    as.Date(bar)
+  }
+}
+
+#commonbuida - applies joinfun to derive-000 directory contents
+#' @export
+commonbuida <- function(joinfun=intersect,nn="000",patt=".?_....RData") {
+  dd0 <- paste0(root.global,"BDH/derive-",nn,"/")
+  dd <- dir(dd0)[grepl(patt,dir(dd0))]
+  if(0==length(dd)) { return(NA) #unsatisfactory
+  } else {
+    pp <- paste0(dd0,dd)
+    da <- vector("list",length(dd))
+    bui <- vector("list",length(dd))
+    for(i in seq_along(pp)) {
+      load(pp[i])
+      da[[i]] <- index(x)
+      bui[[i]] <- colnames(x)
+    }
+    allda <- Reduce(joinfun,da[0<lapply(da,length)])
+    allbui <- Reduce(joinfun,bui[0<lapply(bui,length)])
+    x <- as.Date(allda,origin = "1970-01-01") #no idea why origin is needed here
+    list(da=x,bui=allbui)
+  }
+}
+
+#' @export
+bodgebuida <- function() { #allows aapa to build
+  putrdatv(list(bui=letters,da=seq.Date(from=Sys.Date()-100,to=Sys.Date(),by=1)),app='jo',v=0,ty='buida')
+}
+
+#putbuida
+#' @export
+putbuida <- function(x=commonbuida()) {
+  putrdatv(x,app="jo",type="buida",ver=0) #this is hardcoded to ensure persistence
+}
+
+#getbuida
+#' @export
+getbuida <- function(...) {
+  getrdatv(app="jo",type="buida",ver=0,...)
+}
+
+# turn - median daily value
+turn <- function(iday = 1:5, nweek = 26) {
+  x <- getbdh("PX_VOLUME_TFU") * getbdh("EQY_WEIGHTED_AVG_PX_TFU")
+  dates <- index(x)
+  weekday <- dates[as.POSIXlt(dates)$wday %in% iday]
+  xi <- coredata(x[weekday])
+  xi[is.na(xi)] <- 0
+  zi <- zoo(xi, index(x[weekday]))
+  rollapplyr(zi, FUN = median, width = length(iday) * nweek, partial = TRUE)
+}
+
+# tradefrac - fraction of days traded
+tradefrac <- function(iday = 1:5, nweek = 26) {
+  x <- getbdh("PX_VOLUME_TFU") * getbdh("EQY_WEIGHTED_AVG_PX_TFU")
+  dates <- index(x)
+  weekday <- dates[as.POSIXlt(dates)$wday %in% iday]
+  xi <- coredata(x[weekday])
+  xi[!is.na(xi) & (0 < xi)] <- 1
+  xi[is.na(xi)] <- 0
+  zi <- zoo(xi, index(x[weekday]))
+  rollapplyr(zi, FUN = mean, width = length(iday) * nweek, partial = TRUE)
+}
+
+# valuenday - value transacted n days, total
+valuenday <- function(iday = 1:5, nweek = 26, ndays = 20) {
+  x <- getbdh("PX_VOLUME_TFU") * getbdh("EQY_WEIGHTED_AVG_PX_TFU")
+  dates <- index(x)
+  weekday <- dates[as.POSIXlt(dates)$wday %in% iday]
+  xi <- coredata(x[weekday])
+  xi[is.na(xi)] <- 0
+  zi <- zoo(xi, index(x[weekday]))
+  z1 <- rollapplyr(zi, FUN = sum, width = ndays, partial = TRUE)
+  rollapplyr(z1, FUN = median, width = length(iday) * nweek, partial = TRUE)
+}
+
+# freemcap - free float market cap
+freemcap <- function(iday = 1:5, nweek = 26) {
+  ff <- getbdh("EQY_FREE_FLOAT_PCT_TFU")/100
+  for (j in 1:ncol(ff)) {
+    if (all(is.na(ff[, j]))) {
+      print(j)
+      ff[, j] <- 1
+    }
+  }
+  x <- getbdh("CUR_MKT_CAP_TFU") * ff
+  dates <- index(x)
+  weekday <- dates[as.POSIXlt(dates)$wday %in% iday]
+  xi <- coredata(x[weekday])
+  zi <- zoo(xi, index(x[weekday]))
+  rollapplyr(zi, FUN = mean, width = length(iday) * nweek, na.rm = TRUE, partial = TRUE)
+}
+
+
+#zeroprepend
+
+#' @export
+zeroprepend <- function(x,ntotal) {
+  x <- as.character(x)
+  stopifnot(all(nchar(x)<=ntotal)) #otherwise x is right-truncated
+  z <- paste(rep("0",ntotal),collapse="")
+  zz <- rep(z,length(x))
+  substr(zz,1+nchar(zz)-nchar(x), nchar(zz)) <- x
+  zz
+}
+
+#' @export
+winsorise <- function (x, minval = quantile(x = x, probs = probs[1], na.rm = na.rm),
+          maxval = quantile(x = x, probs = probs[2], na.rm = na.rm),
+          probs = c(0.05, 0.95), na.rm = FALSE) {
+  pmax(pmin(x, maxval), minval)
+}
+
+#this is a duplicate of a more sophisticated version found in this library
+# #mynorm - preserves rankings, places on a normal distribution of same [from 00lib]
+# #' @export
+# mynorm <- function(x,sdv=sd(as.numeric(x),na.rm=TRUE),meanarg=mean(x,na.rm=TRUE))
+# {
+#   qnorm(p=rank(x,na.last='keep')/(1+sum(!is.na(x))),sd=sdv,mean=meanarg)
+# }
+
+
+
+#' @export
+winsoriser <- function(dt = xx, field = "redoto", thresh = 0.001) {
+    pt <- paste0("dt[,quantile(", field, ",", thresh, ",na.rm=TRUE)]")
+    xmin <- dt[, eval(parse(text = pt))]
+    pt <- paste0("dt[,quantile(", field, ",", 1 - thresh, ",na.rm=TRUE)]")
+    xmax <- dt[, eval(parse(text = pt))]
+    pt <- paste0(field, ":=min(max(", field, ",xmin),xmax)")
+    x <- dt[, eval(parse(text = pt)), by = c("bui", "date")]
+}
+
+#' @export
+saferecip <- function(x,eps=sqrt(.Machine$double.eps)) {
+  1/(x+.Machine$double.eps)
+}
+
+#' @export
+mz <-
+  function(x) {
+    stopifnot(is(as.Date(rownames(x)),"Date"))
+    zoo(x,order.by=as.Date(rownames(x)))
+  }
+
+#' @export
+ncpus <- function(
+  nsplit=3 #number of separate entire tasks
+)
+{
+  min(
+    max(
+    as.numeric(
+      strsplit(
+        shell(
+          "wmic cpu get NumberOfCores,NumberOfLogicalProcessors",
+          intern=TRUE
+          ),
+        " "
+        )[[2]]
+      ),
+    na.rm=T
+    ),
+    8
+  )
+}
+
+
+#' Get panel
+#'
+#' get a timeseries/cross-section panel or cross-section of reference data
+#' @param mnem filename without extension
+#' @param mydir directory
+#' @param myclass character flag for 'zoo' or 'dt'
+#' @param ... passed to dern to construct mydir
+#' @examples getstep('NAME',n='000',typ='BDP')
+#' @export
+#' @family accessor
+getstep <- function(mnem = strsplit(dir(mydir)[1], split = "\\.")[[1]][1], mydir = dern(...), myclass=c("zoo","dt"), ...) {
+  myclass <- match.arg(myclass)
+  fnam <- ifelse(myclass=="dt",paste0(mydir, mnem, "_dt.RData"),paste0(mydir, mnem, ".RData"))
+  #load(paste0(mydir, mnem, ".RData"))
+  if(myclass=="dt") {
+    load(paste0(mydir, mnem, ".RData"))
+    rownames(x)<-as.character(index(x))
+    x <- data.table(mattotab(coredata(x)))
+
+  } else {
+    load(paste0(mydir, mnem, ".RData"))
+  }
+  x
+}
+
+#' Get multiple reference data for all bui
+#'
+#' the root of all the filenames in the directory
+#' @param mydir directory
+#' @param mnem mnemonics (fields)
+#' @export
+#' @family toplevel
+getbdp <- function(mydir = dern(n = "000", typ = "BDP"), mnem = bdp1con()[, field]) {
+  # loadx <- function(mydir,mnem){{load(paste0(mydir,mnem,'.RData'));x}}
+  dt <- getstep(mnem = mnem[1], mydir = mydir)
+  if (1 < length(mnem))
+    for (i in 2:length(mnem)) dt <- dt[getstep(mnem = mnem[i], mydir = mydir)]
+  dt
+}
+
+#what is this?
+#' @export
+xpkg <- function(x) {x[,bui]}
+
+
+#' @export
+imgzoo <- function(z,                 #zoo
+                     orderby=NULL,...)       #how to reorder columns
+{
+  stopifnot(is(z,"zoo"))
+  if (is.null(orderby)) {
+    if (any(is.na(z)))
+      orderby <- is.na(z)
+    else if (mode(z) == "character")
+      orderby <- z == "0"
+    else orderby <- z == 0
+  }
+  zz <- as.matrix(z)
+  mode(zz) <- "numeric"
+  jorder <- suppressWarnings(order(unlist(lapply(lapply(data.frame(!orderby),which),min)), #first value where orderby is not true
+                                   unlist(lapply(lapply(data.frame(orderby),which),min)),  #first value where orderby is true
+                                   as.numeric(unlist(lapply(lapply(data.frame(!orderby[(rev(seq(along=orderby[,1,drop=FALSE]))),,drop=FALSE]),which),min)))*-1 #first value from end where orderby is true
+  ))
+  zzz <- t(zz[,jorder])[,nrow(zz):1]
+  image(zzz,xlab="bui",ylab="date",axes=FALSE,...)
+}
+
+#####ssc section (futures)
+
+#right blank append to achieve a fixed total number of chars nch
+#' @export
+sscrba <- function(bui=sscread()[,ticker],nch=2) {
+  as.character(sapply(bui,function(x,nch){paste0(x,paste(rep(' ',max(0,nch-nchar(x))),collapse=''))},nch=nch))
+}
+
+#right trim to n
+#' @export
+sscrt <- function(bui=sscread()[,ticker],nch=3) {
+  substr(bui,1,nch)
+}
+
+#right blank/number strip
+#' @export
+sscrbs <- function(bui=sscrba(),trim=c("space","number")) {
+  trim <- match.arg(trim)
+  patt <- switch(trim,
+                 space=' $',
+                 number='(0|[1-9][0-9]*)$'
+  )
+  stripr <- function(x){
+    while(grepl(patt=patt,x=x,perl=TRUE)) {
+      x <- substr(x,1,nchar(x)-1)
+    }
+    x
+  }
+  as.character(sapply(bui,stripr))
+}
+
+#month append
+#' @export
+sscma <- function(bui=sscrba(),nm=1:3) {
+  sort(as.character(outer(FUN=paste0,bui,nm)))
+}
+
+#yellow strip/append
+#' @export
+sscy <- function(bui=sscma(),append=TRUE) {
+  for(i in seq_along(bui)) {
+    if(grepl(patt=' Comdty$',x=bui[i],perl=TRUE,ignore.case=TRUE)) {
+      bui[i] <- substr(bui[i],1,nchar(bui[i])-nchar(" Comdty"))
+    }
+    bui[i] <- sscrbs(bui[i])
+  }
+  if(append) {
+    bui <- paste(bui,' Comdty')
+  }
+  bui
+}
+
+#convert vector of tickers to names with/without month
+#' @export
+sscname <- function(bui=sscy(sscma()),withn=TRUE) {
+  buin <- substr(sscy(bui,append=FALSE),3,3) #number as string
+  buix <- sscrbs(sscy(bui,append=FALSE),trim='num') #bui without number
+  name1 <- sscread()[buix,name]
+  if(withn) {name1 <- paste0(name1,substr(sscy(bui,append=FALSE),3,3))}
+  name1
+}
+
+#construct ticker modifier
+#' @export
+sscadj <- function(bui=sscy(),roll=c('A','B','R','F','N','D','O'),adjust=c('N','D','R','W'),days=0) { #active/rel.to.expiry/option.expiry ; none/difference
+  roll <- match.arg(roll)
+  adjust <- match.arg(adjust)
+  datepart <- paste0(':',zeroprepend(days,2),'_0_')
+  sscy(paste0(sscy(bui,append=FALSE),paste0(' ',roll,datepart,adjust,' ')))
+}
+
+#construct a mnemonic
+#' @export
+sscmnem <- function(roll=c('A','B','R','F','N','D','O'),adjust=c('N','D','R','W'),mnem=c('P','R','T','O'),nahandle=c('N','L','F'),class=c('Z','D'),days=0) {
+  paste0(match.arg(roll),zeroprepend(days,2),match.arg(adjust),match.arg(mnem),match.arg(nahandle),match.arg(class))
+}
+
+#dates with data
+#' @export
+sscda <- function(buida=gett("buida")) {
+  ca[(date>=buida$da[1])&(date<=max(buida$da)),date]
+}
+
+
+#' @export
+all_identical <- function(x) {
+  if (length(x) == 1L) {
+    warning("'x' has a length of only 1")
+    return(TRUE)
+  } else if (length(x) == 0L) {
+    warning("'x' has a length of 0")
+    return(logical(0))
+  } else {
+    TF <- vapply(1:(length(x)-1),
+                 function(n) identical(x[[n]], x[[n+1]]),
+                 logical(1))
+    if (all(TF)) TRUE else FALSE
+  }
+}
+
+#sundry library routines for sdl, all small mods from other libraries as indicated below
+#main mod is to expunge all SQL references so that it runs on spark
+#these need tidying up because should not rely on ca - not currently in use, transferred from sdl 2015-08
+
+####from 00lib [I think]
+#iz - test for valid zoo
+#' @export
+iz <- function(x) {
+  class(x)=="zoo" && class(index(x))=="Date"
+}
+
+####from folib
+#sdl - shiller's smoothness prior
+#' @export
+sdl <- function(
+  yxraw=gett('sdl0d'),
+  la=-(10:1),
+  w=seq(from=1,to=3,length=nrow(yx)),
+  b1=1,   #tail=0
+  b2=1,   #head=0
+  b3=1,   #curv=0
+  bb=1,   #overall bayes
+  napex=floor(length(la)/2)  #apex of triangle
+)
+{
+  if(ncol(yxraw)==2) {yx <- yxraw} else if(ncol(yxraw)==1) {yx <- cbind(yxraw,yxraw)}
+  nn <- length(la)
+  x <- folagpad.sdl(yx[,-1,drop=FALSE],k=la)
+  da <- index(x)
+  dafit <- da[apply(!is.na(x),1,all)]              #fit: only x required
+  daest <- as.Date(intersect(dafit,index(yx)[!is.na(yx[,1])]))    #estimation: both y and x available
+  dum1 <- t(c(1,rep(0,nn-1)))
+  dum2 <- rev(dum1)
+  dum <- rbind(
+    dum1*b1*6,
+    dum2*b2*3
+  )
+  if(nn>2) {
+    dum3 <- sdlcurv(nn)
+    dum <- rbind(dum,
+                 dum3*b3*20
+    )
+  }
+  dum <- bb*dum
+  rr <- crossprod(dum)*as.numeric(crossprod(yx[,2]))
+  yx <- cbind(yx[daest,1],x[daest,,drop=FALSE])
+  res <- wls(
+    yx=coredata(yx),
+    w=w,
+    rr=rr
+  )
+  res <- c(res,fit=NA)
+  res$fit <- zoo(cbind(NA,cbind(1,coredata(x[dafit,,drop=FALSE]))%*%t(res$coef)),dafit)
+  res$fit[match(daest,index(res$fit)),1] <- yx[daest,1] #bug in [<-.zoo so workaround with match
+  res
+}
+
+#sdlcurv - finite difference curvature
+#' @export
+sdlcurv <- function(nn)
+{
+  dum <- matrix(0,nn-2,nn)
+  ij <- cbind(1:(nn-2),1:(nn-2))
+  dum[ij] <- 1
+  ij[,2] <- ij[,2]+1
+  dum[ij] <- -2
+  ij[,2] <- ij[,2]+1
+  dum[ij] <- 1
+  dum
+}
+
+#sdlslope - finite difference slope, primarily for final period in aappd
+#' @export
+sdlslope <- function(nn)
+{
+  dum <- matrix(0,nn-1,nn)
+  ij <- cbind(1:(nn-1),1:(nn-1))
+  dum[ij] <- 1
+  ij[,2] <- ij[,2]+1
+  dum[ij] <- -1
+  dum
+}
+
+#' @export
+offda.sdl <- function(x,                      #dateseries
+                      lags=0,                     #lagrange
+                      withinsequence=ca)  #assumed this exists as a global
+{
+  i <- match(as.Date(x),as.Date(withinsequence))
+  ilag <- outer(i,lags,"+")
+  ii <- unique(as.integer(ilag))
+  iii <- ii[ii %in% seq_along(withinsequence)]
+  sort(withinsequence[iii])
+}
+
+#' @export
+folagpad.sdl <- function(
+  x,      #zoo
+  k
+)
+{
+  d1 <- min(index(x))
+  d2 <- max(index(x))
+  mydates <- as.Date(extrca( offda.sdl(x=d1,lags=-max(c(k,0))) ,offda.sdl(x=d2,lags=-min(c(k,0))))) #was aautil::
+  res <- lags(as.numeric(coredata(x)),k,pad=TRUE)
+  zoo(res,mydates)
+}
+
+#wls - weighted least squares for use in sdl, allows bayesian mod to xx
+#' @export
+wls0 <- function(yx,w=rep(1,nrow(yx)),rr=NULL)
+{
+  if(is.null(rr)) rr <- matrix(0,ncol(yx)-1,ncol(yx)-1)
+  rr <- rbind(0,cbind(0,rr))
+  y <- yx[,1,drop=FALSE]
+  x <- cbind(1,yx[,-1,drop=FALSE])
+  xwgt <- sweep(x,MARGIN=1,STATS=w,FUN="*")
+  xxinv <- solve(t(xwgt)%*%x + rr) #need the inverse for vcv
+  co <- xxinv %*% t(xwgt)%*%y
+  yvar <- cov.wt(y,wt=w,meth="ML")$cov[1,1,drop=TRUE]
+  residvar <- cov.wt(y-x%*%co,wt=w,meth="ML")$cov[1,1,drop=TRUE]
+  r.squared <- 1-residvar/yvar
+  coef <- t(co)
+  vcv <- residvar*xxinv
+  colnames(coef)[1] <- 'const'
+  list(
+    coef=coef,
+    r.squared=matrix(r.squared,dimnames=list(NULL,'r.squared')),
+    residvar=residvar,
+    vcv=vcv
+  )
+}
+
+#mse(b) univariate, loocv, for numerical minimisation of overall bayes using optimise()
+#' @export
+wls0b <- function(b,yx,w=rep(1,nrow(yx)),rr0,nfold=10,fold=folder(nrow(yx),nfold))
+{
+  nfold <- min(nfold,nrow(yx))
+  stopifnot(is.matrix(yx))
+  stopifnot(is.factor(fold) && length(fold)==nrow(yx))
+  stopifnot(length(w)==nrow(yx))
+  rr <- rbind(0,cbind(0,rr0*b))
+  y <- yx[,1,drop=FALSE]
+  x <- cbind(1,yx[,-1,drop=FALSE])
+  xwgt <- sweep(x,MARGIN=1,STATS=w,FUN="*")
+  re <- y*NA
+  for(i in 1:length(levels(fold))) {
+    iout <- fold==levels(fold)[i]
+#     xxinv <- solve(t(xwgt[!iout,,drop=F])%*%x[!iout,,drop=F] + rr)#in
+#     co <- xxinv %*% t(xwgt[!iout,])%*%y[!iout,,drop=F]#in
+    co <- solve(t(xwgt[!iout,,drop=F])%*%x[!iout,,drop=F] + rr, t(xwgt[!iout,])%*%y[!iout,,drop=F])#in
+#    co <- xxinv %*% #in
+    re[iout] <- y[iout,,drop=F]-x[iout,,drop=F]%*%co
+  }
+  (length(y)-1)*cov.wt(re,wt=w,meth="unb",center=F)$cov[1,1,drop=TRUE]
+}
+
+
+#generate matrix with lags of x: only the non-na rows returned; 1st row is tau=0 and starts at i=taufa+1
+#' @export
+lagf <- function(x=1:10,taufa=5,pretext='.lag-',...) {
+  stopifnot(taufa>=0 && taufa<length(x))
+  if(taufa==0) return(as.matrix(x))
+  tauco <- length(x)-1
+  res <- suppressWarnings(matrix(rep(c(x,rep(NA,taufa)),taufa+1),tauco+taufa,taufa+1))[(taufa:tauco)+1,,drop=F]
+  if(!is.null(rownames(x))) {
+    rownames(res) <- rownames(x)[taufa+(1:nrow(res))]
+  }
+  colnames(res) <- latotxt(0:taufa,pretext=pretext,...)
+  res
+}
+
+
+#solve via xv for minimal mse on a low curvature sdl
+#' @export
+wwbsdl <- function(dt,kfold=10,method=c('cycle','random'),bmax=1e6,b1=0,b2=1,bb=1)
+{
+  yx <- as.matrix(dt)
+  p <- ncol(yx)-1
+  rr <- sdl2Fun(yx,la=-(p:1),b1=b1,b2=b2,bb=bb)
+  fold <- folder(nrow(yx),lev=kfold,method=method)
+  oo <- optimise(f=wls0b,int=c(0,bmax),yx=yx,rr=rr,tol=1e-10,fold=fold)
+  wwbsdld <- vector('list')
+  wwbsdld$bopt <- c(wls0(yx=yx,rr=rr*oo$minimum),objective=oo$objective,solution=oo$minimum)
+  wwbsdld$b0 <- c(wls0(yx=yx,rr=rr*0),objective=wls0b(b=0,yx=yx,rr=rr,fold=fold),solution=0)
+  wwbsdld$bmax <- c(wls0(yx=yx,rr=rr*bmax),objective=wls0b(b=bmax,yx=yx,rr=rr,fold=fold),solution=bmax)
+  if((wwbsdld$bmax$objective-wwbsdld$bopt$objective)/abs(wwbsdld$bopt$objective)<(-1e-6)) stop('minimisation failed')
+  wwbsdld
+}
+
+#factor levels define lev folds of a length len
+#' @export
+folder <- function(len=100,lev=10,method=c('cycle','random'),seed=sample(1:1e4,1)) {
+  method <- match.arg(method)
+  if(method=='cycle') {
+    as.factor(rep(1:lev,length=len))
+  } else {
+    set.seed(seed=seed)
+    as.factor(sample(1:lev,len,rep=T))
+  }
+}
+#
+
+#' #mse(b) univariate, loocv, for numerical minimisation of overall bayes using optimise()
+#' #' @export
+#' wls0b <- function(b,yx,w=rep(1,nrow(yx)),rr0,nfold=10,fold=as.factor(sample(nfold,nrow(yx),rep=T)))
+#' {
+#'   rr <- rbind(0,cbind(0,rr0*b))
+#'   y <- yx[,1,drop=FALSE]
+#'   x <- cbind(1,yx[,-1,drop=FALSE])
+#'   xwgt <- sweep(x,MARGIN=1,STATS=w,FUN="*")
+#'   re <- y*0
+#'   for(i in 1:length(y)) {
+#'     iout <- (1:length(y))==i
+#'     xxinv <- solve(t(xwgt[!iout,,drop=F])%*%x[!iout,,drop=F] + rr)#in
+#'     co <- xxinv %*% t(xwgt[!iout,])%*%y[!iout,,drop=F]#in
+#'     re[i] <- y[iout,,drop=F]-x[iout,,drop=F]%*%co
+#'   }
+#'   (length(y)-1)*cov.wt(re,wt=w,meth="unb",center=F)$cov[1,1,drop=TRUE]
+#' }
+
+#reduced outputs, kept for backward compatibility
+#' @export
+wls <- function(yx,w=rep(1,nrow(yx)),rr=NULL)
+{
+  wls0(yx,w=rep(1,nrow(yx)),rr=NULL)[c('coef','r.squared')]
+}
+
+#' @export
+getca <- function(){ca}
+
+#' @export
+extrca <- function(t1, t2) {
+  ca[(as.character(t1)<=ca)&(ca<=as.character(t2))]
+}
+
+v1deploydata <- function(){c('segexd','setdad','scoxd','decd','yxtad','ldgxd','yxtapd','wimad','dezod','xvmd','xvijd','ijsed','segsumd','fosumd','fisumd','celid')}
+v2deploydata <- function(){c('scoxd','dezod','cncd','zomad','pars','decd','vcfmtd','jomad','dezocombod','celid','varyxd','lmscod','vcvdecd')}
+
+#' @export
+deploydata <- function(vin=getv()$ver,vout=nextv(),type=v2deploydata(),appout=getv()$app) {
+  stopifnot(!any(is.na(list(vin,vout,type))) && length(vin)==1 && length(vout)==1 && length(type)>0)
+  for(i in seq_along(type)) {
+    print(type[i])
+    x <- getrdatv(type=type[i],v=vin)
+    if(!is.null(x)) { #do safety checks
+      stopifnot(!is.null(x)) #input exists
+      stopifnot(is.null(getrdatv(v=vout,type=type[i],app=appout))) #no overwrite
+    }
+    putrdatv(x,v=vout,type=type[i],app=appout)
+  }
+}
+
+
+#' @export
+copydown <- function(vout=nextv()-1,root.local=root.global) { #copies a single version down one level in tree
+  vout <- prependrdatv(vout)
+  allfnam <- dir(paste0(rdroot(),'/rd'))
+  fnam <- allfnam[grep(paste0(patt='.?ver',vout,'.RData'),allfnam)]
+  for(i in seq_along(fnam)) {
+    cmd <- paste0('cp ',root.local,'/rd/',fnam[i],' ./rd/',fnam[i])
+    shell(cmd)
+  }
+}
+
+# #' @export
+# deploydata2 <- function (vin = getv()$ver) #this version copies the whole ver to one with 0 appended
+# {
+#   stopifnot(!is.na(vin) && length(vin) == 1)
+#   ddv1 <- ddv(vin)
+#   for (i in seq_along(ddv1[,num])) {
+#     x <- getrd(ddv1[i,as.numeric(num)])
+#     stopifnot(!is.na(x) && !is.null(x))
+#     putrd(x, des=ddv1[i,paste0(des,'0')],use=T)
+#   }
+# }
+
+#multivariate prior: returns the pattern matrix R and tightness dpn for mixe()
+#' @export
+mvp <- function(
+  len=3:6, #number of lags in the distribution (vector)
+  dpnc=seq_along(len), #dp for curvature (slackness on prior, see mixe)
+  dpnh=dpnc, #dp for head
+  dpnt=dpnc #dp for tail
+  ) {
+  stopifnot(all(3<=len))
+  stopifnot(all(unlist(lapply(list(dpnc,dpnh,dpnt),length))==length(len)))
+  s1 <- lapply(len,sdlcurv)  #strengths
+  i0 <- unlist(lapply(s1,nrow))
+  i2 <- cumsum(i0)
+  i1 <- i2+1-i0
+  j0 <- unlist(lapply(s1,ncol))
+  j2 <- cumsum(j0)
+  j1 <- j2+1-j0
+  xcurv <- matrix(0,max(i2),max(j2))
+  xtail <- xhead <- matrix(0,length(s1),max(j2))
+  dpn <- NULL
+  for(i in seq_along(s1)) {
+    xcurv[i1[i]:i2[i],j1[i]:j2[i]] <- s1[[i]]
+    dpn <- rbind(dpn,as.matrix(rep(dpnc[i],i0[i])))
+    xhead[i,j1[i]] <- 1
+    dpn <- rbind(dpn,dpnh[i])
+    xtail[i,j2[i]] <- 1
+    dpn <- rbind(dpn,dpnt[i])
+  }
+  rr <- rbind(xcurv,xhead,xtail)
+  list(r=rr,dpn=dpn)
+}
+
+#tgt.solve.QP - uses uniroot to adjust risk aversion to achieve a target
+
+#' @export
+tgt.solve.QP <- function(
+  ce,         #ce
+  dvec,       #return, colnames(dvec) in ce
+  constr,     #constraints list(Am,bv,meq) - nrows(constr$Am)=ncol(dvec)
+  tgt=.1,     #target for vol or gross
+  ttyp=c("gross","vol"),   #target type
+  tol=.1,      #tolerance
+  vcomp=c("T","S","R","M","precalc")
+)
+{
+  ttyp <- match.arg(ttyp)
+  vcomp <- match.arg(vcomp)
+  stopifnot(tgt>0)
+  stopifnot(tol>1.e-18)
+  stopifnot(!is.null(rownames(dvec))&& (all(rownames(dvec)%in%buice(ce)) || vcomp=="precalc"))
+  `volqp` <- function(w,Dmat) {sqrt(as.numeric(t(w)%*%Dmat%*%w))} #these functions inside due to limited error checking for performance
+  `grossqp` <- function(w,Dmat) {sum(abs(w))}
+  `tgtqp` <- function(x, Dmat, dvec, constr, tgt, ttyp, objfun) {
+    w <- solve.QP(Dmat=x*Dmat, dvec=dvec, Amat=constr$Am, bvec=constr$bv, meq=constr$meq)$solution
+    return(objfun(w=w,Dmat=Dmat) - tgt)
+  }
+  bui <- rownames(dvec)
+  objfun <- switch(ttyp,'vol'=volqp,'gross'=grossqp)
+  if(vcomp=="precalc") {Dmat <- ce} else {Dmat <- vcvce(ce)[[vcomp]][bui,bui]}
+  w0 <- solve(Dmat,dvec)
+  scal <- objfun(w=w0,Dmat=Dmat)
+  upr <- 5*scal/tgt #gives tgt-tgt*<0 because tgt decreases with lambda (checked on next line)
+  if(tgtqp(x=upr, Dmat=Dmat, dvec=dvec, constr=constr, tgt=tgt, ttyp=ttyp, objfun=objfun)>0) stop("unexpected condition in tgt.solve.QP")
+  lwr <- .05*scal/tgt #first estimate for upper bound
+  while(tgtqp(x=lwr, Dmat=Dmat, dvec=dvec, constr=constr, tgt=tgt, ttyp=ttyp, objfun=objfun)<0) {lwr <- lwr*.2;print(paste("lowering lambda for soln. -",lwr))}
+  estim.prec <- root <- 1
+  while(estim.prec>0.01*root && tol>1.e-18) {
+    sol <- uniroot(
+      f=tgtqp,
+      interval=c(upr,lwr),
+      Dmat=Dmat,
+      dvec=dvec,
+      constr=constr,
+      tgt=tgt,
+      ttyp=ttyp,
+      tol=tol,
+      objfun=objfun)
+    root <- sol$root
+    estim.prec <- sol$estim.prec
+    tol <- tol/10
+    if(estim.prec>0.01*root) print("lowering tolerance to achieve accuracy")
+  }
+  sol <- solve.QP(Dmat=root*Dmat, dvec=dvec, Amat=constr$Am, bvec=constr$bv, meq=constr$meq)
+  list(root=root,solution=sol)
+}
+
+#' @export
+putp <- function(
+          fname='./pars/pars1.csv'
+          ) {
+  pars <- readp(fname)
+  putt(pars)
+}
+
+#' @export
+readp <- function(
+  fname='./pars/pars1.csv'
+) {
+  # ii  driver  iseq  sname pname  pvalue     pmode     desc  values
+  # 1   .       1     .     run    T          logical   NA    NA
+  # 1   .       1     .     btki   cac        character NA    NA
+  pars <- data.table(read.csv(fname))
+  setkey(pars,pname,iseq)[,ii:=1:.N][,iseq:=1:.N][] #added for po4 - should not break other uses
+}
+
+#' @export
+getp <- function(
+          sname1=NULL
+          ,
+          pname1=NULL
+          ,
+          pars=gett('pars')
+          ,
+          j='pvalue'
+          ) {
+  if(is.null(sname1)&is.null(pname1)) return(NULL)
+  text1 <- ifelse(is.null(sname1),'TRUE',paste0('sname==sname1'))
+  text2 <- ifelse(is.null(pname1),'TRUE',paste0('pname== pname1'))
+  text <- paste0(text1,'&',text2) #browser()
+  if(j=='pvalue') {
+    x <- pars[eval(parse(text=text)),]
+    if(nrow(x)==0) return(NULL) #dk why it hangs otherwise
+    x1 <- x[,result:=ifelse(pmode=='Date',as.Date(pvalue),as(pvalue,pmode)),iseq][,result]
+    if(x[,all(pmode=='Date')]) class(x1) <- 'Date'
+  } else {
+    x1 <- setkey(pars[eval(parse(text=text)),],pname)[]
+  }
+  x1
+}
+chkgetp <- function() {
+    pars <-
+      structure(list(ii = c(1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L,
+      1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L), driver = c(".", ".", ".", ".",
+      ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".",
+      "."), iseq = c(1L, 1L, 2L, 3L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L,
+      1L, 1L, 1L, 1L, 2L, 3L), sname = c(".", ".", ".", ".", ".", ".",
+      ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", ".", "."),
+      pname = c("run", "btki", "btki", "btki", "wind", "qu1", "dumo",
+      "d0", "dlend", "dlwin", "rollce", "rollbest", "falag", "rankscaleexpo",
+      "indu", "jneut", "jneut", "jneut"), pvalue = c("T", "cac",
+      "dax", "smi", "2556.75", "U12422988-235", "6", "2006-03-03",
+      "max(wblf())", "7300", "76", "3", "2", "0", "ICB_SUBSECTOR_NAME",
+      "ICB_SUBSECTOR_NAME", "bcpr", "INDUSTRY_SUBGROUP_NUM"), pmode = c("logical",
+      "character", "character", "character", "numeric", "character",
+      "numeric", "Date", "character", "numeric", "numeric", "numeric",
+      "numeric", "numeric", "character", "character", "character",
+      "character"), desc = c(NA, NA, NA, NA, NA, NA, NA, NA, NA,
+      NA, NA, NA, NA, NA, NA, NA, NA, NA), values = c(NA, NA, NA,
+      NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA
+      )), .Names = c("ii", "driver", "iseq", "sname", "pname",
+      "pvalue", "pmode", "desc", "values"), row.names = c(NA, -18L), class = c("data.frame"))
+    pars <- data.table(pars)
+    for(i in seq_along(pars[,pname])) {
+      pn <- pars[i,pname]
+      pm <- pars[i,pmode]
+      stopifnot(class(getp(pn=pn,pars=pars))==pm)
+    }
+    stopifnot(getp(pname='jneut',pars=pars)==c("ICB_SUBSECTOR_NAME","bcpr","INDUSTRY_SUBGROUP_NUM"))
+    T
+}
+
+#get all pars into global variables - this is a one-way trip
+#' @export
+getpg <- function(
+            pars=gett('pars')
+          ) {
+  ll <- setdiff(ls(envir=globalenv()),'ver.g')
+  rm(list=ll[grepl('\\.g$',ll)],envir=globalenv()) #delete existing
+  for(i in seq_along(pars[,pname])) {
+    pname <- pars[i,pname]
+    pvalue <- getp(pn=pars[i,pname],pars=pars)
+    assign(x=paste0(pname,'.g'),value=pvalue,env=globalenv())
+  }
+}
+
+# #' @export
+# getpv <- function(step='pp',par='fnam',pp=gett('pars')) {
+#   if(pp[par,all(mode(pvalue)==pmode)]) {
+#     return(pp[par,pvalue])
+#   } else {
+#     return(as(pp[par,pvalue],pp[par,unique(pmode)]))
+#   }
+# }
+
+#' @export
+getpv <- function(step='pp',par='fnam',pp=gett('pars'),default) {
+  if(is.null(pp)|!par%in%pp[,pname]) { return(default) }
+  if(pp[par,all(mode(pvalue)==pmode)]) {
+    return(pp[par,pvalue])
+  } else {
+    return(as(pp[par,pvalue],pp[par,unique(pmode)]))
+  }
+}
+
+
+#' @export
+getpall <- function(pars=gett('pars')) { #assigns all scalar pars in the global environment
+  if(is.null(pars)) return()
+  p1 <- pars[,.N,pname][(N==1)&(0<nchar(pname))&substr(pname,1,1)%in%c(letters,LETTERS)]
+  for(i in 1:nrow(p1)) {
+    pp <- getp(pname=p1[i,pname],j='')
+    assign(x=pp[,pname],value=pp[,pvalue],env=globalenv())
+  }
+}
+
+#' @export
+maxver <- function(ver='[0-9]+',type='*') {
+  max(as.numeric(unlist(lapply(strsplit(ddv1(v=ver,t=type)[,des],split='ver'),'[',2))))
+}
+
+#' @export
+getlast <- function(ty='edppd') {
+  getrd(ddv1(ty=ty,ver=maxver(ty=ty))[,as.numeric(num)]) #
+}
+
+#----timing protocol
+
+#' @export
+newtime <- function(){putrdatv(NULL,ty='timed')}
+
+#' @export
+starttime <- function(typex='x') {
+  oldtimed <- gett('timed')
+  if(!is.null(oldtimed)) oldtimed <- oldtimed[type!=typex]
+  timed <- cbind(as.data.table(getv()),data.table(start=Sys.time(),end=Sys.time(),secs=0L))[,type:=typex]
+  timed <- setkey(rbind(oldtimed,timed),type)
+  putt(timed,time=F) #avoid recursion
+}
+
+#' @export
+endtime <- function(typex='x') {
+  timed <- gett('timed')
+  if(is.null(timed)) return(NULL)
+  timed[type==typex,end:=Sys.time()]
+  timed[,secs:=round(as.numeric(end-start),1)]
+  setkey(timed,start)
+  putt(timed,time=F) #avoid recursion
+}
+
+#' @export
+showtime <- function() {gett('timed')}
+
+#' @export
+ttf <- function(x,args=list()) {
+  starttime(x)
+  do.call(x,args=args)
+  endtime(x)
+  ttfd <- showtime()
+}
+
+#' @export
+deltime <- function(i) {
+  timed <- showtime()
+  timed <- timed[-i]
+  putt(timed,time=F) #avoid recursion
+}
+
+#' add rownames to zoo
+#'
+#' in case rownames got lost, put them back
+#' @param z zoo
+#' @export
+zm <- function(z) {
+  stopifnot(is.zoo(z))
+  rownames(z) <- as.character(index(z))
+  z
+}
+
+#note that sorting these will reverse order if negatives
+#' @export
+latotxt <-
+  function(la,nchar=4,minustext='minus',plustext='plus',pretext='')
+  {
+    mysign <- sign(la)
+#    latext <- as.character(abs(la))
+    latext <- zeroprepend(abs(la),nchar)
+    minus <- la<=0
+    latext[minus] <- psz(minustext,latext[minus])
+    latext[!minus] <- psz(plustext,latext[!minus])
+    latext <- paste0(pretext,latext)
+    latext
+  }
+
+#' @export
+txttola <-
+  function(x=dirfld("cala"),minustext='minus',plustext='plus',pretext='')
+  {
+#    x <- union(x[grep(patt="^minus",x)],x[grep(patt="^plus",x)])
+    x <- c(x[grep(patt=paste0("^",pretext,minustext),x)],x[grep(patt=paste0("^",pretext,plustext),x)])
+    x <- gsub(patt=paste0("^",pretext,minustext),rep="-",x=x)
+    x <- gsub(patt=paste0("^",pretext,plustext),rep="",x=x)
+    as.integer(x)
+  }
+
+
+#' @export
+lags <-
+  function(x,           #vector, mode preserved in output
+           la=0,           #lagseries
+           pad=FALSE)      #flag to retain rows where x is NA
+  {
+    nn <- NULL
+    if(is.matrix(x)) {
+      nn <- rownames(x)
+    } else if(!is.null(names(x))) {
+      nn <- names(x)
+    }
+    x <- x[seq_along(x)]
+    la0 <- sort(union(la,0))
+    o1 <- max(la0)
+    o2 <- min(la0)
+    oo <- o1-o2
+    suppressWarnings(z <- matrix(data=c(x,rep(NA,1+oo)), # the warnings arise from the data being nrows+1 in length, which is deliberate
+                                 nrow=(length(x)+oo),
+                                 ncol=oo+1,
+                                 dimnames=list(rep('pad',length(x)+oo),latotxt(o1:o2))))
+    i1 <- o1+1
+    i2 <- o2+nrow(z)
+    i <- i1:i2 #rows in z corresponding to lag 0...
+    if(!is.null(nn)) { rownames(z)[i] <- nn } #label these...
+    if(pad) { i <- 1:nrow(z) } #for the padded case, return the whole lot
+    z[i,latotxt(la),drop=FALSE]
+  }
+
+
+
+#' @export
+sr <- function(x) {mean(x,na.rm=T)/sd(x,na.rm=T)}
+
+#fit
+#' @export
+dlfit <- function(yx,wwbsdld,comp=c('bopt','b0','bmax')) {
+  comp <- match.arg(comp)
+  stopifnot(ncol(yx)==length(wwbsdld[[comp]]$coef))
+  x <- yx
+  x[,1] <- 1
+  print(wwbsdld[[comp]]$coef)
+  cbind(yx[,1],x%*%t(wwbsdld[[comp]]$coef))
+}
+
+#' @export
+getkey <- function(x,un=T) {
+  res <- x[,key(x),with=F]
+  if(un) {res <- unique(res)}
+  res
+}
+
+#' @export
+setchk <- function(x=T) {
+  stopifnot(is.logical(x))
+  global.chk <<- x
+}
+
+#' @export
+getchk <- function() {
+  if(!exists('global.chk') || !is.logical(global.chk) || !global.chk) {
+    return(FALSE)
+  } else {
+    return(TRUE)
+  }
+}
+
+#' @export
+setverbose <- function(x=T) {
+  stopifnot(is.logical(x))
+  global.verbose <<- x
+}
+
+#' @export
+getverbose <- function() {
+  if(!exists('global.verbose') || !is.logical(global.verbose) || !global.verbose) {
+    return(FALSE)
+  } else {
+    return(TRUE)
+  }
+}
+
+#' @export
+setreturn <- function(x=T) {
+  stopifnot(is.logical(x))
+  global.return <<- x
+}
+
+
+#' @export
+getreturn <- function() {
+  if(!exists('global.return') || !is.logical(global.return) || global.return) {
+    return(TRUE)
+  } else {
+    return(FALSE)
+  }
+}
+
+#' @export
+setkeep <- function(x=T) {
+  stopifnot(is.logical(x))
+  global.keep <<- x
+}
+
+#' @export
+getkeep <- function() {
+  if(!exists('global.keep') || !is.logical(global.keep) || global.keep) {
+    return(TRUE)
+  } else {
+    return(FALSE)
+  }
+}
+#' @export
+unfactordt <- function(x) {
+  stopifnot(is(x,'data.table'))
+  x <- data.frame(x)
+  i <- sapply(x, is.factor)
+  x[i] <- lapply(x[i], as.character)
+  data.table(x)
+}
+
+
+#' Utility returns data.table controlling bdh() arguments
+#'
+#' The returned table is used to construct the directory tree and control the download, supplying fields and overrides
+#' @examples
+#' \dontrun{
+#' bdhbcon()
+#' }
+#' @export
+#' @family constructors
+bdhbcon <- function() {
+  dfl <- vector("list", 100)
+  dfl[[1]] <- data.frame(field = "px_last", adjustmentSplit = "TRUE", adjustmentNormal = "TRUE", currency = NA)
+  dfl[[2]] <- data.frame(field = "px_last", adjustmentSplit = "TRUE", adjustmentNormal = "TRUE", currency = "USD")
+  dfl[[3]] <- data.frame(field = "px_last", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[4]] <- data.frame(field = "eqy_weighted_avg_px", adjustmentSplit = "TRUE", adjustmentNormal = "TRUE", currency = "USD")
+  dfl[[5]] <- data.frame(field = "eqy_weighted_avg_px", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[6]] <- data.frame(field = "cur_mkt_cap", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[7]] <- data.frame(field = "eqy_sh_out", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[8]] <- data.frame(field = "best_target_price", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[9]] <- data.frame(field = "px_to_book_ratio", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[10]] <- data.frame(field = "px_to_cash_flow", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[11]] <- data.frame(field = "eqy_dvd_yld_ind", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[12]] <- data.frame(field = "px_volume", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[13]] <- data.frame(field = "eqy_free_float_pct", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[14]] <- data.frame(field = "pe_ratio", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[15]] <- data.frame(field = "best_esales_cur_yr", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[16]] <- data.frame(field = "best_px_sales_ratio", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+  dfl[[17]] <- data.frame(field = "best_current_ev_best_sales", adjustmentSplit = "TRUE", adjustmentNormal = "FALSE", currency = "USD")
+
+  x <- rbindlist(dfl)[, `:=`(field, toupper(field))]
+  x[, `:=`(subdir, paste0(substr(adjustmentSplit, 1, 1), substr(adjustmentNormal, 1, 1), ifelse(is.na(currency), "L",
+                                                                                                "U")))]
+  setkey(x, field, subdir)[]
+}
+
+#bd protocol for counting Rblpapi usage
+#' @export
+bdw <- function(
+          sec='barc ln equity'
+          ,
+          field='name'
+          ,
+          fn=c('bdp','bdh','bds')
+          ,
+          ...
+          ) {
+  fn <- match.arg(fn)
+  #logdt <- getbdw() #collisions in parallel processes -> probs, so must do this outside snow
+  #row <- data.table(datetime=Sys.time(),fn=fn,sec=length(sec),field=length(field))
+  x <- do.call(fn,args=c(list(sec=sec,field=field),list(...)))
+  #putbdw(rbind(logdt,row))
+  x
+}
+#' @export
+getbdw <- function() {
+  rdr <- root.global
+  on.exit({root.global <<- rdr})
+  aatopselect('p')
+  getrdatv(app='blp',type='usage',ver=0)
+}
+#' @export
+putbdw <- function(logdt) {
+  rdr <- root.global
+  on.exit({root.global <<- rdr})
+  aatopselect('p')
+  putrdatv(logdt,app='blp',type='usage',ver=0)
+}
+
+#quick quantile
+#' @export
+cutN <- function(X , n = 4){
+  if(sd(X)==0 |
+     length(unique(X))<n |
+     any(duplicated(quantile(
+       X ,
+       probs = (0:n) / n ,
+       na.rm = TRUE
+     )))
+     ) {
+    return(rep(ceiling(n / 2), length(X)))
+  }
+  qq <- quantile(
+    X ,
+    probs = (0:n)/n ,
+    na.rm = TRUE )
+  stopifnot(!any(duplicated(qq)))
+  as.numeric(
+    cut(
+    X,
+    include.lowest = TRUE ,
+    breaks = qq
+    )
+  )
+}
+
+#' @export
+f_dowle2 = function(DT) {
+  for (i in names(DT)) { DT[is.na(get(i)),i:=0,with=FALSE] }
+  DT
+}
+
+#faster and avoids deprecated :=,with=F (from SO of course)
+#' @export
+f_dowle3 = function(DT) {
+  for (j in seq_len(ncol(DT))) {set(DT,which(is.na(DT[[j]])),j,0) }
+  DT
+}
+
+
+#' Create directories from pathnames
+#'
+#' Creates directories
+#' @param x list of directory paths
+#' @export
+#' @examples
+#' \dontrun{
+#'
+#' #the following are the norm for initialising directories - see deraabd for usage
+#'
+#' #top-level directories
+#' newbddir(bdtopdir())
+#'
+#' #timeseries directories
+#' newbddir(bdhbdir())
+#'
+#' #point data directories, single key and dual key
+#' newbddir(bdp1dir())
+#' newbddir(bdp2dir())
+#' }
+#' @family directory management
+newbddir <- function(x = bdtopdir(), hard = FALSE, root.local=unlist(options('aa.path'))) {
+  mkdirn(root.local)
+  if (hard) {
+    nul <- lapply(paste0("rd /s /q ", root.local, bdtopdir(top = TRUE)), shell)
+  }
+  nul <- lapply(paste0(root.local, x[order(nchar(x))]), mkdirn)
+}
+
+#dangerous deleter - cleans up empty dirs http://superuser.com/questions/39674/recursively-delete-empty-directories-in-windows
+#' @export
+trimleaves <- function(aapath=unlist(options('aa.path'))) {
+  stopifnot(rev(strsplit(aapath,'\\\\')[[1]])[1:2]=='aabb') #safety mechanism for the maddeleter - aa.path must end aabb/aabb/!
+  mycmd <- paste('ROBOCOPY ',aapath,aapath,'/S /MOVE')
+  shell(mycmd)
+}
+
+#' Paths to destination directory tree upper levels
+#'
+#' Returns paths for directory creation
+#'
+#' Paths describing subdirectories of root.local; start and end without slash or backslash delimiters
+#' Normally for internal use.
+#' @param top logical flag to return only the top-level directories
+#' @export
+#' @examples
+#' bdtopdir()
+#' @family directory management
+
+bdtopdir <- function(top = FALSE) {
+  x <- c("BDH", "BDH/derive-000", "BDH/derive-001", "BDH/raw", "BDP", "BDP/derive-000", "BDP/key1", "BDP/key2", "BDS",
+         "macro", "macro/derive-000", "macro/raw")
+  if (top) {
+    x[!grepl(x = x, patt = "/")]
+  } else {
+    x[order(nchar(x))]
+  }
+}
+
+#' Paths to timeseries directory tree
+#'
+#' Generates paths for directory creation
+#' @param flds data.table with fields 'field' and 'subdir' generated from fields table bdhbcon() + logic
+#' @export
+#' @examples
+#' \dontrun{
+#' bdhbdir()
+#' }
+#' @family directory management
+bdhbdir <- function(flds = bdhbcon(),aapath=F) {
+  x <- paste0("BDH/raw/", flds[, field], "/", flds[, subdir])
+  x <- c(x, paste0("BDH/raw/", flds[, field]))
+  if(aapath) x <- paste0(unlist(options('aa.path')),x)
+  x[order(nchar(x))]
+}
+
+
+#' @export
+bdppre <- function(
+  subd = bdp1dir()
+  ,
+  root.local=unlist(options('aa.path'))
+) {
+  lapply(subd,function(x) {paste0(root.local,x, "/")})
+}
+
+#' @export
+setglobal <- function(
+  x='run'
+  ,
+  value=T
+) {
+  assign(paste0(x,'.g'),value,envir=globalenv())
+}
+#' @export
+getglobal <- function(
+  x='run'
+) {
+  x0 <- paste0(x,'.g')
+  if(!exists(x0,envir=globalenv())) return(NULL)
+  x1 <- get(x0,value,envir=globalenv())
+  x1
+}
+
+
+#' @export
+run <- function(
+  ty='tst'
+  ,
+  doit=getglobal('run')
+  ,
+  returnit=is(x,'ggvis')
+) {
+  if(doit) {
+    {x <- do.call(paste0(ty,'Fun'),args=list())}
+  } else {
+    {x <- gett(paste0(ty,'d'))}
+  }
+  assign(paste0(ty,'d'),x,envir=globalenv())
+  if(returnit) return(x)
+}
+
+#this could be rationalised along with pars protocol
+#' @export
+do <- function(
+  ty='tst'
+  ,
+  doit=getglobal('do')
+  ,
+  returnit=getglobal('return')#{is(x,'ggvis')|is(x,'data.table')|doit=='key'}
+  ,
+  assignit=getglobal('assign')
+) {
+  x <- NULL
+  switch(doit
+         ,
+         run={
+           x <- do.call(paste0(ty,'Fun'),args=list())
+           if(assignit) { assign(paste0(ty,'d'),x,envir=globalenv()) }
+           if(returnit) { return(x) }
+         }
+         ,
+         get={
+           x <- gett(paste0(ty,'d'))
+           if(assignit) { assign(paste0(ty,'d'),x,envir=globalenv()) }
+           if(returnit) { return(x) }
+         }
+         ,
+         print={print(get(paste0(ty,'Fun')))}
+  )
+}
+
+#' @export
+chksolve <- function() {
+  x <- solve(matrix(1,1,1))[1,1]
+  stopifnot(!is.null(x) && is(x,'numeric') && x==1)
+}
+
+#' @export
+print100 <- function(i,eachi=100,firsti=3) {
+  if((i%%eachi)==1|i<=firsti) print(i)
+  if(i==firsti) cat('...\n')
+}
+
+#' @export
+attribdump <- function() {
+  structure(
+    list(
+      part = c("position", "position", "position", "position", "position", "position", "position",
+               "return", "return"),
+      dimension = c(
+        "strategy",
+        "source",
+        "polarity",
+        "industry",
+        "quantile",
+        "longevity",
+        "dynamic",
+        "component",
+        "dynamic"
+      ),
+      values = c(
+        "a/b/c",
+        "index ticker",
+        "long/short",
+        "BICS code",
+        "quartile 1:4",
+        "dead/keep/newbie/transient",
+        "bar/twiddle",
+        "market/systematic/residual",
+        "bar/twiddle"
+      ),
+      description = c(
+        "alpha strategy",
+        "ticker",
+        "long/short",
+        "sector code",
+        "1:4",
+        "path through universe",
+        "mean or deviation from mean",
+        "factor 1,2:k,other",
+        "mean or deviation from mean"
+      )
+    ),
+    .Names = c("part", "dimension", "values", "description"),
+    class = "data.frame",
+    row.names = c(NA, -9L)
+  )
+}
+
+#' @export
+callname <- function(goback=1) {
+  x <- lapply(sys.calls(),as.character)
+  x[[length(x)-goback]][1]
+}
+
+#' @export
+natox <-function(x,value=0)
+  {
+    stopifnot(is.zoo(x))
+    xx <- coredata(x)
+    xx[is.na(xx)] <- value
+    zoo(xx,index(x))
+  }
+
+#' @export
+isotable <- function() {
+x <-
+structure(list(ISO2 = c("AD", "AE", "AF", "AG", "AI", "AL", "AM",
+"AN", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ", "BA",
+"BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN",
+"BO", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC", "CD",
+"CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO", "CR", "CU",
+"CV", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC",
+"EE", "EG", "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO",
+"FR", "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM",
+"GN", "GP", "GQ", "GR", "GS", "GT", "GU", "GW", "GY", "HK", "HM",
+"HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM", "IN", "IO", "IQ",
+"IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH", "KI",
+"KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI",
+"LK", "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME",
+"MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR",
+"MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ", NA, "NC", "NE",
+"NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ", "OM", "PA",
+"PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT",
+"PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC",
+"SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO",
+"SR", "SS", "ST", "SV", "SY", "SZ", "TC", "TD", "TF", "TG", "TH",
+"TJ", "TK", "TL", "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ",
+"UA", "UG", "UM", "US", "UY", "UZ", "VA", "VC", "VE", "VG", "VI",
+"VN", "VU", "WF", "WS", "YE", "YT", "ZA", "ZM", "ZW"), ISO3 = c("AND",
+"ARE", "AFG", "ATG", "AIA", "ALB", "ARM", "ANT", "AGO", "ATA",
+"ARG", "ASM", "AUT", "AUS", "ABW", "ALA", "AZE", "BIH", "BRB",
+"BGD", "BEL", "BFA", "BGR", "BHR", "BDI", "BEN", "BLM", "BMU",
+"BRN", "BOL", "BRA", "BHS", "BTN", "BVT", "BWA", "BLR", "BLZ",
+"CAN", "CCK", "COD", "CAF", "COG", "CHE", "CIV", "COK", "CHL",
+"CMR", "CHN", "COL", "CRI", "CUB", "CPV", "CXR", "CYP", "CZE",
+"DEU", "DJI", "DNK", "DMA", "DOM", "DZA", "ECU", "EST", "EGY",
+"ESH", "ERI", "ESP", "ETH", "FIN", "FJI", "FLK", "FSM", "FRO",
+"FRA", "GAB", "GBR", "GRD", "GEO", "GUF", "GGY", "GHA", "GIB",
+"GRL", "GMB", "GIN", "GLP", "GNQ", "GRC", "SGS", "GTM", "GUM",
+"GNB", "GUY", "HKG", "HMD", "HND", "HRV", "HTI", "HUN", "IDN",
+"IRL", "ISR", "IMN", "IND", "IOT", "IRQ", "IRN", "ISL", "ITA",
+"JEY", "JAM", "JOR", "JPN", "KEN", "KGZ", "KHM", "KIR", "COM",
+"KNA", "PRK", "KOR", "KWT", "CYM", "KAZ", "LAO", "LBN", "LCA",
+"LIE", "LKA", "LBR", "LSO", "LTU", "LUX", "LVA", "LBY", "MAR",
+"MCO", "MDA", "MNE", "MAF", "MDG", "MHL", "MKD", "MLI", "MMR",
+"MNG", "MAC", "MNP", "MTQ", "MRT", "MSR", "MLT", "MUS", "MDV",
+"MWI", "MEX", "MYS", "MOZ", "NAM", "NCL", "NER", "NFK", "NGA",
+"NIC", "NLD", "NOR", "NPL", "NRU", "NIU", "NZL", "OMN", "PAN",
+"PER", "PYF", "PNG", "PHL", "PAK", "POL", "SPM", "PCN", "PRI",
+"PSE", "PRT", "PLW", "PRY", "QAT", "REU", "ROU", "SRB", "RUS",
+"RWA", "SAU", "SLB", "SYC", "SDN", "SWE", "SGP", "SHN", "SVN",
+"SJM", "SVK", "SLE", "SMR", "SEN", "SOM", "SUR", "SSD", "STP",
+"SLV", "SYR", "SWZ", "TCA", "TCD", "ATF", "TGO", "THA", "TJK",
+"TKL", "TLS", "TKM", "TUN", "TON", "TUR", "TTO", "TUV", "TWN",
+"TZA", "UKR", "UGA", "UMI", "USA", "URY", "UZB", "VAT", "VCT",
+"VEN", "VGB", "VIR", "VNM", "VUT", "WLF", "WSM", "YEM", "MYT",
+"ZAF", "ZMB", "ZWE"), ISOn = c(20L, 784L, 4L, 28L, 660L, 8L,
+51L, 530L, 24L, 10L, 32L, 16L, 40L, 36L, 533L, 248L, 31L, 70L,
+52L, 50L, 56L, 854L, 100L, 48L, 108L, 204L, 652L, 60L, 96L, 68L,
+76L, 44L, 64L, 74L, 72L, 112L, 84L, 124L, 166L, 180L, 140L, 178L,
+756L, 384L, 184L, 152L, 120L, 156L, 170L, 188L, 192L, 132L, 162L,
+196L, 203L, 276L, 262L, 208L, 212L, 214L, 12L, 218L, 233L, 818L,
+732L, 232L, 724L, 231L, 246L, 242L, 238L, 583L, 234L, 250L, 266L,
+826L, 308L, 268L, 254L, 831L, 288L, 292L, 304L, 270L, 324L, 312L,
+226L, 300L, 239L, 320L, 316L, 624L, 328L, 344L, 334L, 340L, 191L,
+332L, 348L, 360L, 372L, 376L, 833L, 356L, 86L, 368L, 364L, 352L,
+380L, 832L, 388L, 400L, 392L, 404L, 417L, 116L, 296L, 174L, 659L,
+408L, 410L, 414L, 136L, 398L, 418L, 422L, 662L, 438L, 144L, 430L,
+426L, 440L, 442L, 428L, 434L, 504L, 492L, 498L, 499L, 663L, 450L,
+584L, 807L, 466L, 104L, 496L, 446L, 580L, 474L, 478L, 500L, 470L,
+480L, 462L, 454L, 484L, 458L, 508L, 516L, 540L, 562L, 574L, 566L,
+558L, 528L, 578L, 524L, 520L, 570L, 554L, 512L, 591L, 604L, 258L,
+598L, 608L, 586L, 616L, 666L, 612L, 630L, 275L, 620L, 585L, 600L,
+634L, 638L, 642L, 688L, 643L, 646L, 682L, 90L, 690L, 736L, 752L,
+702L, 654L, 705L, 744L, 703L, 694L, 674L, 686L, 706L, 740L, 728L,
+678L, 222L, 760L, 748L, 796L, 148L, 260L, 768L, 764L, 762L, 772L,
+626L, 795L, 788L, 776L, 792L, 780L, 798L, 158L, 834L, 804L, 800L,
+581L, 840L, 858L, 860L, 336L, 670L, 862L, 92L, 850L, 704L, 548L,
+876L, 882L, 887L, 175L, 710L, 894L, 716L), fullname = c("Andorra",
+"United Arab Emirates", "Afghanistan", "Antigua and Barbuda",
+"Anguilla", "Albania", "Armenia", "Netherlands Antilles", "Angola",
+"Antarctica", "Argentina", "American Samoa", "Austria", "Australia",
+"Aruba", "Aland Islands", "Azerbaijan", "Bosnia and Herzegovina",
+"Barbados", "Bangladesh", "Belgium", "Burkina Faso", "Bulgaria",
+"Bahrain", "Burundi", "Benin", "Saint-Barthélemy", "Bermuda",
+"Brunei Darussalam", "Bolivia", "Brazil", "Bahamas", "Bhutan",
+"Bouvet Island", "Botswana", "Belarus", "Belize", "Canada", "Cocos (Keeling) Islands",
+"Congo, (Kinshasa)", "Central African Republic", "Congo (Brazzaville)",
+"Switzerland", "Côte d'Ivoire", "Cook Islands", "Chile", "Cameroon",
+"China", "Colombia", "Costa Rica", "Cuba", "Cape Verde", "Christmas Island",
+"Cyprus", "Czech Republic", "Germany", "Djibouti", "Denmark",
+"Dominica", "Dominican Republic", "Algeria", "Ecuador", "Estonia",
+"Egypt", "Western Sahara", "Eritrea", "Spain", "Ethiopia", "Finland",
+"Fiji", "Falkland Islands (Malvinas)", "Micronesia, Federated States of",
+"Faroe Islands", "France", "Gabon", "United Kingdom", "Grenada",
+"Georgia", "French Guiana", "Guernsey", "Ghana", "Gibraltar",
+"Greenland", "Gambia", "Guinea", "Guadeloupe", "Equatorial Guinea",
+"Greece", "South Georgia and the South Sandwich Islands", "Guatemala",
+"Guam", "Guinea-Bissau", "Guyana", "Hong Kong, SAR China", "Heard and Mcdonald Islands",
+"Honduras", "Croatia", "Haiti", "Hungary", "Indonesia", "Ireland",
+"Israel", "Isle of Man", "India", "British Indian Ocean Territory",
+"Iraq", "Iran, Islamic Republic of", "Iceland", "Italy", "Jersey",
+"Jamaica", "Jordan", "Japan", "Kenya", "Kyrgyzstan", "Cambodia",
+"Kiribati", "Comoros", "Saint Kitts and Nevis", "Korea (North)",
+"Korea (South)", "Kuwait", "Cayman Islands", "Kazakhstan", "Lao PDR",
+"Lebanon", "Saint Lucia", "Liechtenstein", "Sri Lanka", "Liberia",
+"Lesotho", "Lithuania", "Luxembourg", "Latvia", "Libya", "Morocco",
+"Monaco", "Moldova", "Montenegro", "Saint-Martin (French part)",
+"Madagascar", "Marshall Islands", "Macedonia, Republic of", "Mali",
+"Myanmar", "Mongolia", "Macao, SAR China", "Northern Mariana Islands",
+"Martinique", "Mauritania", "Montserrat", "Malta", "Mauritius",
+"Maldives", "Malawi", "Mexico", "Malaysia", "Mozambique", "Namibia",
+"New Caledonia", "Niger", "Norfolk Island", "Nigeria", "Nicaragua",
+"Netherlands", "Norway", "Nepal", "Nauru", "Niue", "New Zealand",
+"Oman", "Panama", "Peru", "French Polynesia", "Papua New Guinea",
+"Philippines", "Pakistan", "Poland", "Saint Pierre and Miquelon",
+"Pitcairn", "Puerto Rico", "Palestinian Territory", "Portugal",
+"Palau", "Paraguay", "Qatar", "Réunion", "Romania", "Serbia",
+"Russian Federation", "Rwanda", "Saudi Arabia", "Solomon Islands",
+"Seychelles", "Sudan", "Sweden", "Singapore", "Saint Helena",
+"Slovenia", "Svalbard and Jan Mayen Islands", "Slovakia", "Sierra Leone",
+"San Marino", "Senegal", "Somalia", "Suriname", "South Sudan",
+"Sao Tome and Principe", "El Salvador", "Syrian Arab Republic (Syria)",
+"Swaziland", "Turks and Caicos Islands", "Chad", "French Southern Territories",
+"Togo", "Thailand", "Tajikistan", "Tokelau", "Timor-Leste", "Turkmenistan",
+"Tunisia", "Tonga", "Turkey", "Trinidad and Tobago", "Tuvalu",
+"Taiwan, Republic of China", "Tanzania, United Republic of",
+"Ukraine", "Uganda", "US Minor Outlying Islands", "United States of America",
+"Uruguay", "Uzbekistan", "Holy See (Vatican City State)", "Saint Vincent and Grenadines",
+"Venezuela (Bolivarian Republic)", "British Virgin Islands",
+"Virgin Islands, US", "Viet Nam", "Vanuatu", "Wallis and Futuna Islands",
+"Samoa", "Yemen", "Mayotte", "South Africa", "Zambia", "Zimbabwe"
+), name = c("Andorra", "United Arab Emirates", "Afghanistan",
+"Antigua and Barbuda", "Anguilla", "Albania", "Armenia", "Netherlands Antilles",
+"Angola", "Antarctica", "Argentina", "American Samoa", "Austria",
+"Australia", "Aruba", "Aland Islands", "Azerbaijan", "Bosnia and Herzegovina",
+"Barbados", "Bangladesh", "Belgium", "Burkina Faso", "Bulgaria",
+"Bahrain", "Burundi", "Benin", "Saint-Barthélemy", "Bermuda",
+"Brunei Darussalam", "Bolivia", "Brazil", "Bahamas", "Bhutan",
+"Bouvet Island", "Botswana", "Belarus", "Belize", "Canada", "Cocos (Keeling) Islands",
+"Congo Kinshasa", "Central African Republic", "Congo Brazzaville",
+"Switzerland", "Côte d'Ivoire", "Cook Islands", "Chile", "Cameroon",
+"China", "Colombia", "Costa Rica", "Cuba", "Cape Verde", "Christmas Island",
+"Cyprus", "Czech Republic", "Germany", "Djibouti", "Denmark",
+"Dominica", "Dominican Republic", "Algeria", "Ecuador", "Estonia",
+"Egypt", "Western Sahara", "Eritrea", "Spain", "Ethiopia", "Finland",
+"Fiji", "Falkland Islands (Malvinas)", "Micronesia, Federated States of",
+"Faroe Islands", "France", "Gabon", "United Kingdom", "Grenada",
+"Georgia", "French Guiana", "Guernsey", "Ghana", "Gibraltar",
+"Greenland", "Gambia", "Guinea", "Guadeloupe", "Equatorial Guinea",
+"Greece", "South Georgia and the South Sandwich Islands", "Guatemala",
+"Guam", "Guinea-Bissau", "Guyana", "Hong Kong, SAR China", "Heard and Mcdonald Islands",
+"Honduras", "Croatia", "Haiti", "Hungary", "Indonesia", "Ireland",
+"Israel", "Isle of Man", "India", "British Indian Ocean Territory",
+"Iraq", "Iran, Islamic Republic of", "Iceland", "Italy", "Jersey",
+"Jamaica", "Jordan", "Japan", "Kenya", "Kyrgyzstan", "Cambodia",
+"Kiribati", "Comoros", "Saint Kitts and Nevis", "Korea (North)",
+"Korea (South)", "Kuwait", "Cayman Islands", "Kazakhstan", "Lao PDR",
+"Lebanon", "Saint Lucia", "Liechtenstein", "Sri Lanka", "Liberia",
+"Lesotho", "Lithuania", "Luxembourg", "Latvia", "Libya", "Morocco",
+"Monaco", "Moldova", "Montenegro", "Saint-Martin (French part)",
+"Madagascar", "Marshall Islands", "Macedonia, Republic of", "Mali",
+"Myanmar", "Mongolia", "Macao, SAR China", "Northern Mariana Islands",
+"Martinique", "Mauritania", "Montserrat", "Malta", "Mauritius",
+"Maldives", "Malawi", "Mexico", "Malaysia", "Mozambique", "Namibia",
+"New Caledonia", "Niger", "Norfolk Island", "Nigeria", "Nicaragua",
+"Netherlands", "Norway", "Nepal", "Nauru", "Niue", "New Zealand",
+"Oman", "Panama", "Peru", "French Polynesia", "Papua New Guinea",
+"Philippines", "Pakistan", "Poland", "Saint Pierre and Miquelon",
+"Pitcairn", "Puerto Rico", "Palestinian Territory", "Portugal",
+"Palau", "Paraguay", "Qatar", "Réunion", "Romania", "Serbia",
+"Russian Federation", "Rwanda", "Saudi Arabia", "Solomon Islands",
+"Seychelles", "Sudan", "Sweden", "Singapore", "Saint Helena",
+"Slovenia", "Svalbard and Jan Mayen Islands", "Slovakia", "Sierra Leone",
+"San Marino", "Senegal", "Somalia", "Suriname", "South Sudan",
+"Sao Tome and Principe", "El Salvador", "Syrian Arab Republic (Syria)",
+"Swaziland", "Turks and Caicos Islands", "Chad", "French Southern Territories",
+"Togo", "Thailand", "Tajikistan", "Tokelau", "Timor-Leste", "Turkmenistan",
+"Tunisia", "Tonga", "Turkey", "Trinidad and Tobago", "Tuvalu",
+"Taiwan", "Tanzania", "Ukraine", "Uganda", "US Minor Outlying Islands",
+"United States of America", "Uruguay", "Uzbekistan", "Holy See (Vatican City State)",
+"Saint Vincent and Grenadines", "Venezuela (Bolivarian Republic)",
+"British Virgin Islands", "Virgin Islands, US", "Viet Nam", "Vanuatu",
+"Wallis and Futuna Islands", "Samoa", "Yemen", "Mayotte", "South Africa",
+"Zambia", "Zimbabwe")), .Names = c("ISO2", "ISO3", "ISOn", "fullname",
+"name"), class = "data.frame", row.names = c(NA, -247L))
+
+}
+
+
+#' @export
+isoregtable<- function() {
+structure(list(X = c(9L, 18L, 19L, 21L, 25L, 27L, 30L, 32L, 34L,
+23L, 1L, 2L, 4L, 5L, 6L, 8L, 10L, 11L, 12L, 13L, 14L, 15L, 16L,
+17L, 20L, 22L, 24L, 26L, 28L, 29L, 31L, 33L, 35L, 36L, 38L, 39L,
+40L, 3L, 7L, 37L), ISO2 = c("CN", "HK", "ID", "IN", "KR", "MY",
+"PH", "RU", "SG", "JP", "na", "AE", "AT", "AU", "BE", "CH", "CY",
+"DE", "DK", "ES", "FI", "FO", "FR", "GB", "IE", "IT", "KE", "LU",
+"NL", "NO", "RE", "SE", "TZ", "UA", "ZA", "ZM", "ZW", "AR", "CA",
+"US"), ISO3 = c("CHN", "HKG", "IDN", "IND", "KOR", "MYS", "PHL",
+"RUS", "SGP", "JPN", "NAM", "ARE", "AUT", "AUS", "BEL", "CHE",
+"CYP", "DEU", "DNK", "ESP", "FIN", "FRO", "FRA", "GBR", "IRL",
+"ITA", "KEN", "LUX", "NLD", "NOR", "REU", "SWE", "TZA", "UKR",
+"ZAF", "ZMB", "ZWE", "ARG", "CAN", "USA"), name = c("China",
+"Hong Kong", "Indonesia", "India", "South Korea",
+"Malaysia", "Philippines", "Russia", "Singapore",
+"Japan", "Namibia", "UAE", "Austria", "Australia",
+"Belgium", "Switzerland", "Cyprus", "Germany", "Denmark", "Spain",
+"Finland", "Faroe Islands", "France", "UK", "Ireland",
+"Italy", "Kenya", "Luxembourg", "Netherlands", "Norway", "Reunion",
+"Sweden", "Tanzania", "Ukraine", "South Africa",
+"Zambia", "Zimbabwe", "Argentina", "Canada", "USA"
+), region = c("Asia-Pacific", "Asia-Pacific", "Asia-Pacific",
+"Asia-Pacific", "Asia-Pacific", "Asia-Pacific", "Asia-Pacific",
+"Asia-Pacific", "Asia-Pacific", "Asia-Pacific", "EMEA", "EMEA",
+"EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA",
+"EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA",
+"EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA", "EMEA",
+"EMEA", "Americas", "Americas", "Americas")), .Names = c("X",
+"ISO2", "ISO3", "name", "region"), row.names = c(NA, -40L), class = "data.frame")
+}
+
+#' @export
+getgd <- function(x,verbose=T) {
+  #this is how called inside a step to get all args out of rd and into globalenv
+  #NOT WORKS: x0 <- names(formals());x1=NULL;for(i in seq_along(x0)) if(do.call(missing, list(x0[i]))) x1[length(x1)+1]=x0[i];x1
+  #getgd(nn)
+  #can't easily check for vbles which are NULL, which should be treated same as missing
+  stopifnot(is.logical(verbose))
+  x1 <- x[!sapply(x,exists,envir=globalenv())]
+  for(i in seq_along(x1)) {
+    if(nrow(ddv1(ty=x1[i]))==0) stop(paste0(x1[i],' not found on rd'))
+    if(verbose) print(paste0('getting ',x1[i]))
+    assign(x1[i],gett(x1[i]),envir=globalenv())
+    if(is.null(get(x1[i],envir=globalenv()))) stop(paste0('argument ',names(x1)[i],' not found on rd'))
+  }
+}
+
+#' @export
+getcomments = function(filename='R/step.R',patt="^\\s*#"){
+  # - [ ] pcode - comments formatted like this, or with an x thus: [x] extracted into a named list
+  is_assign = function(expr) as.character(expr) %in% c("<-", "<<-", "=", "assign")
+  is_function = function(expr) is.call(expr) && is_assign(expr[[1L]]) && is.call(expr[[3L]]) && expr[[3L]][[1L]] == quote(`function`)
+  src = parse(filename, keep.source = TRUE)
+  functions = Filter(is_function, src)
+  fun_names = as.character(lapply(functions, `[[`, 2L))
+  # - [x] extract all comments
+  r = setNames(lapply(attr(functions, "srcref"), grep, pattern = patt, value = TRUE), fun_names)
+  # - [x] remove leading spaces and comment sign '#'
+  r = lapply(r, function(x) sub(pattern = patt, replacement = "", x = x))
+  # - [x] keep only markdown checkboxes like " - [ ] " or " - [x] "
+  r = lapply(r, function(x) x[nchar(x) >= 7L & substr(x, 1L, 7L) %in% c(" - [ ] "," - [x] ")])
+  # - [x] return only non empty results
+  r[as.logical(sapply(r, length))]
+}
+
+#https://stackoverflow.com/questions/18427455/multiple-ggplots-of-different-sizes
+#' @export
+lay_out = function(...) {
+  x <- list(...)
+  n <- max(sapply(x, function(x) max(x[[2]])))
+  p <- max(sapply(x, function(x) max(x[[3]])))
+  grid::pushViewport(grid::viewport(layout = grid::grid.layout(n, p)))
+
+  for (i in seq_len(length(x))) {
+    print(x[[i]][[1]], vp = grid::viewport(layout.pos.row = x[[i]][[2]],
+                                           layout.pos.col = x[[i]][[3]]))
+  }
+}
+
+
+#' @export
+grepstring <- function(x=regpcode(metro()),dollar=F,caret=T) {
+  if(caret) x <- paste0('^',x)
+  if(dollar) x <- paste0(x,'$')
+  paste(x,collapse='|')
+}
+
+
+#' @export
+deltables <- function(nn=NULL){
+  if(is.null(nn)) {
+    nn <- data.table::tables(env=globalenv())
+    if(0<length(nn)) nn <- nn[,NAME]
+  }
+  if(length(nn)>0) {
+    rm(list=nn,envir=globalenv())
+  }
+}
+
+#' @export
+rmifgl <- function(
+  x #character=names of non-function objects in .GlobalEnv
+  ) {
+  for(i in seq_along(x)) {
+    if(
+      exists(x[i],envir=globalenv())
+      &&
+      mode(get(x[i],envir=globalenv()))!='function'
+    ) {
+      rm(list=x[i],envir=globalenv())
+      }
+  }
+}
+
+#' @export
+cobalt <- function(){
+c(
+  blue='#0082F4',
+  green='#35CA05',
+  onch='#ED9304',
+  punk='#FF628C',
+  midnight='002140')
+}
