@@ -24,41 +24,26 @@ abbrev <- function(x, len = 30, rep = "", patt = list("\\.", "/", "&", "\\*", ":
         patt <- union(patt, " ")
     x <- abbreviate(x, minl = len)
     x <- gsub(x = x, patt = grepstring(patt,caret=F), rep = rep)
-    #for (i in 1:length(patt)) x <- gsub(x = x, patt = patt[i], rep = rep)
     x
 }
 
 #' @export
-multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+multiplot <- #https://www.rdocumentation.org/packages/scater/versions/1.0.4/topics/multiplot
+  function(..., plotlist=NULL, file, cols=1, layout=NULL) {
   library(grid)
-
-  # Make a list from the ... arguments and plotlist
   plots <- c(list(...), plotlist)
-
   numPlots = length(plots)
-
-  # If layout is NULL, then use 'cols' to determine layout
   if (is.null(layout)) {
-    # Make the panel
-    # ncol: Number of columns of plots
-    # nrow: Number of rows needed, calculated from # of cols
     layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
                      ncol = cols, nrow = ceiling(numPlots/cols))
   }
-
   if (numPlots==1) {
     print(plots[[1]])
-
   } else {
-    # Set up the page
     grid.newpage()
     pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
-
-    # Make each plot, in the correct location
     for (i in 1:numPlots) {
-      # Get the i,j matrix positions of the regions that contain this subplot
       matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
-
       print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
                                       layout.pos.col = matchidx$col))
     }
@@ -704,7 +689,6 @@ zoonorm <- function(x, dimension = c("ts", "xs", "tsxs"), ...) {
 #' @export
 mkdirn <- function(dd) {
     if (all(is.na(file.info(dd))))
-        #suppressWarnings(system(paste0("mkdir ", dd)))
         suppressWarnings(shell(paste0("mkdir ", dd)))
 }
 
@@ -1302,7 +1286,8 @@ freemcap <- function(iday = 1:5, nweek = 26) {
 #zeroprepend
 
 #' @export
-zeroprepend <- function(x,ntotal) {
+zeroprepend <- #left-pad integer with zeros
+  function(x,ntotal) {
   x <- as.character(x)
   stopifnot(all(nchar(x)<=ntotal)) #otherwise x is right-truncated
   z <- paste(rep("0",ntotal),collapse="")
@@ -1355,23 +1340,16 @@ ncpus <- function(
   nsplit=3 #number of separate entire tasks
 )
 {
-  min(
-    max(
-    as.numeric(
-      strsplit(
-        shell(
-          "wmic cpu get NumberOfCores,NumberOfLogicalProcessors",
-          intern=TRUE
-          ),
-        " "
-        )[[2]]
-      ),
-    na.rm=T
-    ),
-    8
-  )
+shell(
+  "wmic cpu get NumberOfCores,NumberOfLogicalProcessors",
+  intern=TRUE
+)%>%
+  strsplit(.," ")%>%
+  `[[`(.,i=2)%>%
+  as.numeric(.)%>%
+  min(.,na.rm=T)%>%
+  min(.,8)
 }
-
 
 #' Get panel
 #'
