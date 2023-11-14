@@ -2857,3 +2857,37 @@ c(
   punk='#FF628C',
   midnight='002140')
 }
+
+#' @export
+circlefit <- #from package pracma DEPRECATED due to shared name :(
+  function (xp, yp) 
+{
+    if (!is.vector(xp, mode = "numeric") || !is.vector(yp, mode = "numeric")) 
+        stop("Arguments 'xp' and 'yp' must be numeric vectors.")
+    if (length(xp) != length(yp)) 
+        stop("Vectors 'xp' and 'yp' must be of the same length.")
+    n <- length(xp)
+    p <- qr.solve(cbind(xp, yp, 1), matrix(xp^2 + yp^2, ncol = 1))
+    v <- c(p[1]/2, p[2]/2, sqrt((p[1]^2 + p[2]^2)/4 + p[3]))
+    rms <- sqrt(sum((sqrt((xp - v[1])^2 + (yp - v[2])^2) - v[3])^2)/n)
+    x <- c(x=v[1],y=v[2],r=v[3],rms=rms)
+    return(x)
+}
+
+#' @export
+xcirclefit <- #from package pracma modified: silent, returns rms
+  function (
+    xp, 
+    yp
+    ){
+    if (!is.vector(xp, mode = "numeric") || !is.vector(yp, mode = "numeric")) 
+        stop("Arguments 'xp' and 'yp' must be numeric vectors.")
+    if (length(xp) != length(yp)) 
+        stop("Vectors 'xp' and 'yp' must be of the same length.")
+    n <- length(xp)
+    p <- qr.solve(cbind(xp, yp, 1), matrix(xp^2 + yp^2, ncol = 1))
+    v <- c(p[1]/2, p[2]/2, sqrt((p[1]^2 + p[2]^2)/4 + p[3]))
+    rms <- sqrt(sum((sqrt((xp - v[1])^2 + (yp - v[2])^2) - v[3])^2)/n)
+    x <- c(x=v[1],y=v[2],r=v[3],rms=rms)
+    return(x)
+}
