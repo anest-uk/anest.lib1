@@ -17,15 +17,22 @@ rdroot <- function() {
     root.global
 }
 
-# abbrev - abbreviate and remove forbidden characters
 #' @export
-abbrev <- function(x, len = 30, rep = "", patt = list("\\.", "/", "&", "\\*", ":",","), nospace = TRUE) {
+abbrev <- 
+  function( # abbrev - abbreviate and remove forbidden characters
+    x, 
+    len = 30, 
+    rep = "", 
+    patt = list("\\.", "/", "&", "\\*", ":",","), 
+    nospace = TRUE
+    ) {
     if (nospace)
         patt <- union(patt, " ")
     x <- abbreviate(x, minl = len)
     x <- gsub(x = x, patt = grepstring(patt,caret=F), rep = rep)
     x
 }
+
 
 #' @export
 multiplot <- #https://www.rdocumentation.org/packages/scater/versions/1.0.4/topics/multiplot
@@ -681,13 +688,11 @@ zoonorm <- function(x, dimension = c("ts", "xs", "tsxs"), ...) {
     res
 }
 
-#' make directory
-#'
-#' make directory if it does not exist
-#' @param dd path
-#' @keywords utility
 #' @export
-mkdirn <- function(dd) {
+mkdirn <- 
+  function( #make dir (WINDOWS)
+    dd
+    ) {
     if (all(is.na(file.info(dd))))
         suppressWarnings(shell(paste0("mkdir ", dd)))
 }
@@ -1283,11 +1288,13 @@ freemcap <- function(iday = 1:5, nweek = 26) {
 }
 
 
-#zeroprepend
 
 #' @export
-zeroprepend <- #left-pad integer with zeros
-  function(x,ntotal) {
+zeroprepend <- 
+  function( #left-pad integer with zeros
+    x,
+    ntotal
+    ) {
   x <- as.character(x)
   stopifnot(all(nchar(x)<=ntotal)) #otherwise x is right-truncated
   z <- paste(rep("0",ntotal),collapse="")
@@ -1336,8 +1343,8 @@ mz <-
   }
 
 #' @export
-ncpus <- function(
-  nsplit=3 #number of separate entire tasks
+ncpus <- 
+  function( #number of CPUs for snow 
 )
 {
 shell(
@@ -1347,7 +1354,7 @@ shell(
   strsplit(.," ")%>%
   `[[`(.,i=2)%>%
   as.numeric(.)%>%
-  min(.,na.rm=T)%>%
+  max(.,na.rm=T)%>%
   min(.,8)
 }
 
@@ -2815,10 +2822,15 @@ lay_out = function(...) {
 
 
 #' @export
-grepstring <- function(x=regpcode(metro()),dollar=F,caret=T) {
+grepstring <- 
+  function(#grep for any in x 
+    x=regpcode(metro()), #character vector
+    dollar=F,
+    caret=T
+    ) {
   if(caret) x <- paste0('^',x)
   if(dollar) x <- paste0(x,'$')
-  paste(x,collapse='|')
+  paste(x,collapse='|') #OR function does the work
 }
 
 
@@ -2834,7 +2846,8 @@ deltables <- function(nn=NULL){
 }
 
 #' @export
-rmifgl <- function(
+rmifgl <- 
+  function( #remove if global
   x #character=names of non-function objects in .GlobalEnv
   ) {
   for(i in seq_along(x)) {
@@ -2855,12 +2868,15 @@ c(
   green='#35CA05',
   onch='#ED9304',
   punk='#FF628C',
-  midnight='002140')
+  midnight='#002170')
 }
 
 #' @export
-circlefit <- #from package pracma DEPRECATED due to shared name :(
-  function (xp, yp) 
+circlefit <-
+  function ( #from package pracma modified: silent, returns rms DEPRECATED due to shared name :(
+    xp, 
+    yp
+    ) 
 {
     if (!is.vector(xp, mode = "numeric") || !is.vector(yp, mode = "numeric")) 
         stop("Arguments 'xp' and 'yp' must be numeric vectors.")
@@ -2875,8 +2891,8 @@ circlefit <- #from package pracma DEPRECATED due to shared name :(
 }
 
 #' @export
-xcirclefit <- #from package pracma modified: silent, returns rms
-  function (
+xcirclefit <-
+  function ( #from package pracma modified: silent, returns rms
     xp, 
     yp
     ){
