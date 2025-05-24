@@ -2941,7 +2941,7 @@ get_script_dir <-
   }
   
 #' @export
-download_pp_csv <- function(destfile = NULL,
+download_pp_csv <- function(destfile = 'pp-complete.csv',
                             url = "http://prod.publicdata.landregistry.gov.uk.s3-website-eu-west-1.amazonaws.com/pp-complete.csv",
                             verbose = TRUE,
                             check_interval_sec = 10,
@@ -2960,7 +2960,7 @@ download_pp_csv <- function(destfile = NULL,
                 verbose = verbose,
                 ssl_verifyhost = FALSE,
                 ssl_verifypeer = FALSE,
-                ipresolve = 4)
+                ipresolve = 1)
   
   # Start async download
   cat("Starting download to:", destfile, "\n")
@@ -2989,3 +2989,4 @@ download_pp_csv <- function(destfile = NULL,
     stop("Download did not complete successfully.")
   }
 }
+
